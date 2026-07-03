@@ -1,5 +1,21 @@
 # STATUS — OpenWrt on Orange Pi RV2 (newest at top)
 
+## 2026-07-03 — Build env fix: OpenWrt won't build as root -> moved tree to non-root `builder`
+First build (as root at /root/openwrt) FAILED early in host-tools: `tools/tar` configure aborts
+with "you should not run configure as root" (build-01.log line 4788). OpenWrt's buildroot does NOT
+support building as root (multiple components refuse; FORCE_UNSAFE_CONFIGURE is the wrong fix).
+Fix applied the supported way:
+- Created non-root WSL user `builder` (uid 1001).
+- **Moved the whole tree: `/root/openwrt` -> `/home/builder/openwrt`, chown -R builder:builder.**
+  My target/linux/spacemit files, feeds/, and dl/ cache all moved with it (nothing re-cloned).
+- Cleaned the partial root-owned build_dir/staging_dir/tmp from the failed run.
+- `make defconfig` re-run as builder: clean, target still spacemit/generic/orangepi-rv2.
+- **Relaunched `make -j24 V=s` as builder** (log: /home/builder/buildlogs/build-02.log). Confirmed
+  running as USER=builder and already past the previous tar failure point (compiling host tools).
+- NOTE for all future build ops: the buildroot now lives at **/home/builder/openwrt** and must be
+  driven as the builder user (`sudo -u builder -H bash -c '...'`). The vendor ref image stays at
+  /root/owrt (read-only). Scaffold commit 449f8ac unchanged/valid.
+
 ## 2026-07-03 — GATE 1 APPROVED; target/linux/spacemit scaffolded (config-clean, DTS validated)
 Coordinator approved the 6.18 + carry-master-DTS plan. Built the target skeleton (in the WSL
 buildroot at /root/openwrt and mirrored into this repo under `target/linux/spacemit/`):

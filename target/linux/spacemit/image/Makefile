@@ -18,7 +18,7 @@ define Build/spacemit-sdcard
 	rm -f $@.boot
 	mkfs.fat $@.boot -C $(FAT32_BLOCKS)
 	mcopy -i $@.boot $@-boot.scr ::boot.scr
-	mcopy -i $@.boot $(LINUX_DIR)/arch/riscv/boot/dts/$(DEVICE_DTS).dtb ::dtb
+	mcopy -i $@.boot $(DTS_DIR)/$(DEVICE_DTS).dtb ::dtb
 	mcopy -i $@.boot $(IMAGE_KERNEL) ::Image
 	./gen_spacemit_sdcard_img.sh \
 		$@ \
