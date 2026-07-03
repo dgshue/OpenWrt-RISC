@@ -4,6 +4,17 @@ Both builds are **resumable from on-disk cache**. The board is idle on its valid
 The in-memory orchestration (background agents, monitors, cron backstops) does NOT survive a
 reboot / Claude restart — re-establish it, then resume the two builds below.
 
+## PLANNED (do this on return): migrate the OpenWrt build WSL → `openclaw` Ubuntu VM
+Decision (2026-07-03): move the OpenWrt buildroot off WSL to the user's **`openclaw`** Ubuntu VM
+(dedicated, native Linux, ideally always-on & independent of this Windows host so it survives host reboots).
+Need from user on return: **openclaw IP/hostname + SSH access** (add a key), and confirm it's host-independent.
+Migration steps:
+1. SSH access to openclaw (install a key — reuse buildvm_ed25519.pub pattern or a new key). Probe cores/RAM/disk (need ~50 GB free).
+2. Install OpenWrt build deps (build-essential clang flex bison g++ gawk gettext git libncurses-dev libssl-dev python3 rsync unzip zlib1g-dev file wget swig time). **Build as a NON-root user** (WSL hit OpenWrt's tar root-refusal — openclaw's normal user is fine).
+3. Get the work over: the target lives in this repo (`target/linux/spacemit`, `config-6.18`, `patches-6.18/`, `image/`, committed at c1fb479). Cleanest transfer = **push this repo to a GitHub remote** (dgshue/OpenWrt-RISC, private) then clone on openclaw + drop our target into an OpenWrt `main` checkout. (Alt: rsync the files.) A remote also gives this local-only repo an off-machine backup.
+4. `./scripts/feeds update -a && ./scripts/feeds install -a`, `make defconfig` (should select spacemit/generic/orangepi-rv2), `make -j<N> V=s`.
+5. Retire the WSL build (or keep as fallback). Vendor ref image: re-extract from `~/Downloads/openwrt-ky-...-sysupgrade.img.gz` on openclaw if node-mining is still needed (analysis is already done).
+
 ## 1. OpenWrt build (WSL) — the active project
 - Tree: `/home/builder/openwrt` in WSL Ubuntu. **Must run as the `builder` user (uid 1001), NOT root.**
 - Target committed here (F:\GitHub\OpenWrt-RISC): `target/linux/spacemit` on kernel 6.18.37 (SHAs 449f8ac scaffold, c1fb479 env-fix). `docs/gate1-kernel-research.md` has the kernel rationale.
