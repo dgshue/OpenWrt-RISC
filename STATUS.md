@@ -1,5 +1,33 @@
 # STATUS — OpenWrt on Orange Pi RV2 (newest at top)
 
+## 2026-07-03 — *** FIRST BOOTABLE IMAGE BUILT *** (ext4 + squashfs SD images)
+The build now produces flashable images. Two bugs stood between the compiled kernel and an image;
+both fixed:
+1. **Empty subtarget** (fixed by coordinator, cfb900d): `SUBTARGETS:=generic` was declared but
+   `generic/target.mk` didn't exist on the build host, so the subtarget resolved empty -> the image
+   assembly was skipped and the name came out `openwrt-spacemit--xunlong` (double dash). Creating
+   `target/linux/spacemit/generic/target.mk` (BOARDNAME:=Generic) made the subtarget real; images
+   now name correctly `openwrt-spacemit-generic-xunlong_orangepi-rv2-*`.
+2. **gen_spacemit_sdcard_img.sh ptgen misuse** (fixed here): my script passed explicit partition
+   offsets `-p 64M@4M -t 83 -p 104M@68M` with `-l 1024` alignment, which made ptgen reject
+   partition-1 start ("Invalid start ...") and emit only partial output; `set $(ptgen ...)` then got
+   non-numeric tokens -> `/ 512 syntax error` and an empty `dd seek=` -> Error 1. Also ptgen's
+   "part X Y" progress lines go to STDERR and were polluting the capture. Fix: let ptgen auto-place
+   both partitions (drop the `@offset`s) and redirect stderr (`2>/dev/null`), matching the proven
+   d1/starfive pattern. Now `set` cleanly gets `1048576 67108864 69206016 109051904`.
+- **Result — `bin/targets/spacemit/generic/`:**
+  - `openwrt-spacemit-generic-xunlong_orangepi-rv2-ext4-sdcard.img.gz`     (10.2 MB)
+  - `openwrt-spacemit-generic-xunlong_orangepi-rv2-squashfs-sdcard.img.gz` ( 9.5 MB)
+  - proper `openwrt-spacemit-generic-xunlong_orangepi-rv2.manifest`
+  Both are valid gzips. Decompressed MBR layout verified: DOS/MBR label, disk id 0x5452574f (OWRT);
+  **p1 = FAT32(LBA) 64M @sector 2048, boot flag set; p2 = Linux(83) 104M @sector 135168** — exactly
+  the 2-partition boot+rootfs SD we designed. Boot FAT holds boot.scr + Image + dtb (from the build
+  log's mcopy steps). U-Boot/OpenSBI stay in SPI-NOR (not in this image), matching the vendor flow.
+- Image step rebuilt in ~7 s (kernel+pkgs cached). Disk healthy at 23 GB free.
+- BUILD-ONLY: images NOT flashed/booted — board testing remains gated on the user.
+- **This is the first-image milestone.** Next: a full clean `make` to regenerate sha256sums listing
+  the images, and (gated) eventual on-board boot test.
+
 ## 2026-07-03 — Resolved ALL new kernel symbols in one pass (incl. the missing CLOCK driver!)
 The RTC fix alone was insufficient: syncconfig stops at the FIRST unresolved symbol, so the next
 build tripped on `MMP_PDMA (NEW)`. Fixed it properly this time — enumerated the COMPLETE unresolved

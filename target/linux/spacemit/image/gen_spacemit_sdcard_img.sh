@@ -20,16 +20,16 @@ ROOTFS="$3"
 BOOTFSSIZE="$4"
 ROOTFSSIZE="$5"
 
-# 4MB gap before p1 (matches typical K1 SD layouts; keeps clear of any
-# vendor bootloader remnants even though we boot from SPI-NOR).
-BOOTOFFSET_MB=4
-ROOTFSPTOFFSET=$(($BOOTOFFSET_MB + $BOOTFSSIZE))
+head=4
+sect=63
 
-# MBR (-t): 0x0c = FAT32 LBA (boot), 0x83 = Linux (rootfs).
-# -S sets a fixed disk signature so PARTUUID is deterministic.
-set $(ptgen -o "$OUTPUT" -h 4 -s 63 -l 1024 \
-	-t c -p ${BOOTFSSIZE}M@${BOOTOFFSET_MB}M \
-	-t 83 -p ${ROOTFSSIZE}M@${ROOTFSPTOFFSET}M)
+# Let ptgen place both partitions (aligned to 1 MiB). MBR types: 0x0c = FAT32
+# LBA (boot), 0x83 = Linux (rootfs). ptgen prints, per partition, the byte
+# offset then the byte size on stdout; its "part X Y" progress lines go to
+# stderr, so drop stderr before feeding "set".
+set $(ptgen -o "$OUTPUT" -h "$head" -s "$sect" -l 1024 \
+	-t c -p ${BOOTFSSIZE}M \
+	-t 83 -p ${ROOTFSSIZE}M 2>/dev/null)
 
 BOOTOFFSET="$(($1 / 512))"
 ROOTFSOFFSET="$(($3 / 512))"
