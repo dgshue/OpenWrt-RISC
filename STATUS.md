@@ -1,5 +1,19 @@
 # STATUS — OpenWrt on Orange Pi RV2 (newest at top)
 
+## 2026-07-03 — Build host migrated: WSL -> independent Ubuntu KVM VM "openclaw"
+The build moved OFF WSL onto the user's dedicated Ubuntu KVM VM **openclaw** (192.168.1.20). The
+WSL tree (/home/builder/openwrt) is ABANDONED. openclaw is the build host from now on.
+- SSH: `ssh -i ~/.ssh/id_ed25519 openclaw@192.168.1.20` (user `openclaw`, non-root — no OpenWrt
+  root-refusal). Buildroot at **~/openwrt**. Our target/linux/spacemit (config-6.18 + DTS patch +
+  image profile) transferred verbatim from this repo; `make defconfig` CLEAN, target still
+  spacemit/generic/orangepi-rv2.
+- Build RUNNING: `make -j6 V=s`, detached, log `~/buildlogs/build-openclaw-01.log`. In host-tools;
+  toolchain + kernel 6.18.37 ahead.
+- **CONSTRAINTS to watch:** disk ~25 GB free (116 GB vg, 78% used) — TIGHT for a full OpenWrt build;
+  polling df, will alert if free approaches ~5 GB. RAM 7.8 GB + 8 GB swap, -j6 (drop to -j4 if OOM).
+- Monitoring disk + kernel-phase + errors over SSH. Report gates: kernel patch/config applied,
+  then first image at `bin/targets/spacemit/generic/*.img.gz`.
+
 ## 2026-07-03 — Build env fix: OpenWrt won't build as root -> moved tree to non-root `builder`
 First build (as root at /root/openwrt) FAILED early in host-tools: `tools/tar` configure aborts
 with "you should not run configure as root" (build-01.log line 4788). OpenWrt's buildroot does NOT
