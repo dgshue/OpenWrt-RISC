@@ -1,5 +1,21 @@
 # STATUS — OpenWrt on Orange Pi RV2 (newest at top)
 
+## 2026-07-03 — Kernel phase reached; DTS patch applied CLEAN; fixed a config-completeness gap
+Build on openclaw cleared toolchain + reached the KERNEL phase. **Our DTS patch applied cleanly**
+(build-openclaw-01.log:97323) and the 6.18.37 kernel prepared — the target scaffold is sound.
+It then FAILED at kernel `syncconfig`: a newly-visible K1 symbol
+`RTC_DRV_SPACEMIT_P1 (NEW) [Y/n/m/?]` prompted, which aborts a non-interactive build. Cause: our
+config-6.18 enabled MFD/REGULATOR_SPACEMIT_P1 but not the P1 RTC sub-driver, so kconfig found it
+newly-reachable (it `default ARCH_SPACEMIT` -> wants =y). Fix (all NEW symbols in one pass):
+- Added `CONFIG_RTC_DRV_SPACEMIT_P1=y` (we want the P1 RTC — matches full-HW intent).
+- Ran `make kernel_oldconfig` (olddefconfig-accepted all other NEW kernel symbols with their
+  defaults) then `make target/linux/refresh` to regenerate config-6.18. Net diff vs prior: exactly
+  ONE line (+CONFIG_RTC_DRV_SPACEMIT_P1=y); no other NEW symbol needed a non-default -> the earlier
+  TRACE/KUNIT/etc `(NEW)` prompts all took defaults cleanly. config-6.18 now 447 lines.
+- config-6.18 synced to BOTH openclaw and this repo (byte-identical MD5). Committed.
+- RESUMED `make -j6 V=s` (toolchain cached; only kernel+packages+image re-run). Disk was ~17 GB
+  free and dropping as the kernel builds — watching closely.
+
 ## 2026-07-03 — Build host migrated: WSL -> independent Ubuntu KVM VM "openclaw"
 The build moved OFF WSL onto the user's dedicated Ubuntu KVM VM **openclaw** (192.168.1.20). The
 WSL tree (/home/builder/openwrt) is ABANDONED. openclaw is the build host from now on.
