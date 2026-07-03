@@ -1,0 +1,13 @@
+#!/bin/sh
+uci -q batch <<UCI
+set network.lan.proto=static
+set network.lan.ipaddr=192.168.1.35
+set network.lan.netmask=255.255.255.0
+set network.lan.gateway=192.168.1.1
+delete network.lan.dns
+add_list network.lan.dns=192.168.1.1
+set dhcp.lan.ignore=1
+UCI
+uci commit network
+uci commit dhcp
+exit 0

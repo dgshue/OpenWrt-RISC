@@ -1,0 +1,21 @@
+riscv: dts: spacemit: k1-orangepi-rv2: constrain microSD to high-speed
+
+Our tree backports only the SD pad-clock fix (patch 0002), not the K1
+UHS voltage-switch/tuning driver commits (00a97fc57c09, e9cb83c10071).
+Requesting UHS (sd-uhs-sdr*) without that support risks a failed 1.8V
+switch during card init. Drop the UHS modes and add no-1-8-v so the
+card runs reliably in 3.3V high-speed mode. Revisit once the UHS driver
+commits are backported.
+
+--- a/arch/riscv/boot/dts/spacemit/k1-orangepi-rv2.dts	2026-07-03 16:37:59.325335069 +0000
++++ b/arch/riscv/boot/dts/spacemit/k1-orangepi-rv2.dts	2026-07-03 16:37:59.334335155 +0000
+@@ -379,8 +379,6 @@
+ 	cap-sd-highspeed;
+ 	vmmc-supply = <&buck4_3v3>;
+ 	vqmmc-supply = <&aldo1>;
+-	sd-uhs-sdr25;
+-	sd-uhs-sdr50;
+-	sd-uhs-sdr104;
+ 	status = "okay";
++	no-1-8-v;
+ };

@@ -1,0 +1,38 @@
+mmc: sdhci-of-k1: enable pad clock infrastructure for SD operation
+
+Backport of upstream commit f87b273e4b6d. The K1 SDHCI controller does
+not drive the SD pad clock until GEN_PAD_CLK_ON is set, and SD-only
+instances additionally need the clock override/force bits. Without this
+the card receives no clock, so CMD0/ACMD41 time out silently and the
+core reports only "Failed to initialize" with no sub-error. This fixes
+microSD boot on the Orange Pi RV2 (kernel 6.18, which predates the fix).
+
+--- a/drivers/mmc/host/sdhci-of-k1.c	2026-07-03 16:11:05.860777053 +0000
++++ b/drivers/mmc/host/sdhci-of-k1.c	2026-07-03 16:11:05.869777085 +0000
+@@ -20,6 +20,13 @@
+ #include "sdhci.h"
+ #include "sdhci-pltfm.h"
+ 
++#define SPACEMIT_SDHC_OP_EXT_REG	0x108
++#define  SDHC_OVRRD_CLK_OEN		BIT(11)
++#define  SDHC_FORCE_CLK_ON		BIT(12)
++
++#define SPACEMIT_SDHC_LEGACY_CTRL_REG	0x10C
++#define  SDHC_GEN_PAD_CLK_ON		BIT(6)
++
+ #define SPACEMIT_SDHC_MMC_CTRL_REG	0x114
+ #define  SDHC_MISC_INT_EN		BIT(1)
+ #define  SDHC_MISC_INT			BIT(2)
+@@ -100,6 +107,12 @@
+ 
+ 	if (!(host->mmc->caps2 & MMC_CAP2_NO_MMC))
+ 		spacemit_sdhci_setbits(host, SDHC_MMC_CARD_MODE, SPACEMIT_SDHC_MMC_CTRL_REG);
++
++	spacemit_sdhci_setbits(host, SDHC_GEN_PAD_CLK_ON, SPACEMIT_SDHC_LEGACY_CTRL_REG);
++
++	if (host->mmc->caps2 & MMC_CAP2_NO_MMC)
++		spacemit_sdhci_setbits(host, SDHC_OVRRD_CLK_OEN | SDHC_FORCE_CLK_ON,
++				       SPACEMIT_SDHC_OP_EXT_REG);
+ }
+ 
+ static void spacemit_sdhci_set_uhs_signaling(struct sdhci_host *host, unsigned int timing)
