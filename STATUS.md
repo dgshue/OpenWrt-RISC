@@ -1,5 +1,26 @@
 # STATUS — OpenWrt on Orange Pi RV2 (newest at top)
 
+## 2026-07-03 — *** BOOTS ON HARDWARE *** + LuCI web UI; SD root fixed; repo published
+First full boot to userspace on the real board, and the port is now published for contributors.
+- **On-board boot confirmed** (serial COM9): kernel 6.18.37, 8 CPUs, CCU clock driver, **dual-GbE
+  via `k1_emac` (eth0+eth1, 1 Gbps)**, microSD rootfs, F2FS overlay, `procd`, console. Our
+  from-source, mainline-based image — no vendor blob.
+- **microSD root: the load-bearing fix.** The kernel hung at `Waiting for root device …` because
+  6.18's `sdhci-of-k1` never enables the SD **pad clock**, so card-init times out silently while
+  U-Boot reads the same card fine. Backported upstream **`f87b273e4b6d`** as
+  `patches-6.18/0002-…-enable-pad-clock`. Card then enumerates (`SD128 119 GiB`, high-speed) and
+  squashfs root mounts. Full writeup: `docs/openwrt-sd-mmc-fix.md`.
+- **`patches-6.18/0003-…-sd-high-speed-only`**: drop `sd-uhs-*` + add `no-1-8-v` (UHS voltage-switch/
+  tuning commits not yet backported → keep the proven 3.3 V high-speed path).
+- **LuCI added** (uhttpd + luci + rpcd, `apk` image) and **material/openwrt-2020 themes** installed
+  live onto the running board over the serial console (base64 → `ucode b64dec` → `apk add`), no
+  reflash. Web UI reachable.
+- **`base-files/etc/uci-defaults/99-rv2-lan`**: bakes LAN static **192.168.1.35**, gateway/DNS `.1`,
+  LAN DHCP disabled (well-behaved host, not a rogue router). Flagged in README as author-specific.
+- Debug notes: card-detect gating was a red herring (removable cards fail init silently); the DTB is
+  a standalone FAT file so `Image`/`dtb` can be swapped without reflashing — used heavily to iterate.
+- **Published to GitHub (`dgshue/OpenWrt-RISC`)** with `README.md` + docs so others can build/contribute.
+
 ## 2026-07-03 — *** FIRST BOOTABLE IMAGE BUILT *** (ext4 + squashfs SD images)
 The build now produces flashable images. Two bugs stood between the compiled kernel and an image;
 both fixed:
