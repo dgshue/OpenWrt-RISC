@@ -1,0 +1,2367 @@
+From: dgshue <dgshue@gmail.com>
+Date: 2026-07-03
+Subject: [PATCH] riscv: dts: spacemit: sync K1 board DTS from mainline master
+
+Kernel 6.18 (OpenWrt stock) ships only a MINIMAL Orange Pi RV2 board DTS
+(UART0 + LED). The K1 EMAC, MMC/SD, USB, PCIe and PMIC *drivers* are all
+already present in 6.18 -- only the board-level device-tree WIRING that
+enables them matured later (dual EMAC in 6.19-rc1; SD/USB/PCIe/PMIC in
+mainline master heading to 6.19).
+
+This patch replaces the in-tree 6.18 K1 SoC + board DTS with the mainline
+master versions (verbatim, no local edits) so the router-critical set --
+dual-GbE EMAC + microSD root + UART console -- is wired up on the 6.18
+kernel. USB/PCIe nodes are also enabled by the master DTS but are treated
+as phase-2 (their drivers/PHYs bind independently).
+
+Files replaced (mainline master @ arch/riscv/boot/dts/spacemit/):
+  k1.dtsi              870 -> 1345 lines  (adds eth0/eth1, sdhci0, emmc,
+                                           usb_dwc3, usbphy2, pcie1/2,
+                                           i2c8, pdma, qspi SoC nodes)
+  k1-pinctrl.dtsi       79 ->  633 lines  (adds mmc1_cfg/mmc1_uhs_cfg,
+                                           i2c8_cfg, qspi_cfg, pcie/usb
+                                           pin groups -- REQUIRED: the
+                                           6.18 RV2 SD node cannot resolve
+                                           mmc1_cfg without this)
+  k1-orangepi-rv2.dts   40 ->  386 lines  (enables dual EMAC + SD + USB +
+                                           PCIe + P1 PMIC regulators)
+  k1-bananapi-f3.dts    99 ->  396 lines  (kept consistent with new k1.dtsi)
+  k1-milkv-jupiter.dts  79 ->  438 lines  (kept consistent with new k1.dtsi)
+
+DELTA VALIDATION (6.18 vs master):
+  - clock/reset macros: include/dt-bindings/clock/spacemit,k1-syscon.h is
+    IDENTICAL between 6.18 and master (366 defines each) -> all CLK_*/RESET_*
+    refs resolve.
+  - all three K1 board DTS (rv2, bananapi-f3, milkv-jupiter) compile clean
+    (cpp -> dtc, exit 0, zero warnings) against the 6.18 dt-bindings headers.
+  - driver availability in 6.18 confirmed: SPACEMIT_K1_EMAC, MMC_SDHCI_OF_K1,
+    SPACEMIT_CCU, RESET_SPACEMIT, PINCTRL(spacemit,k1-pinctrl), I2C_K1,
+    MFD_SPACEMIT_P1, REGULATOR_SPACEMIT_P1.
+
+Mainline authors of the DTS: Yangyu Chen <cyy@cyyself.name>,
+Hendrik Hamerlinck <hendrik.hamerlinck@hammernet.be>. This is an OpenWrt
+packaging patch that forward-ports their upstream work onto the 6.18 base;
+it is upstreamable to the kernel only as "backport to stable", not as new
+work. Flagged upstreamable; NOT to be submitted without approval.
+
+Signed-off-by: dgshue <dgshue@gmail.com>
+---
+--- a/arch/riscv/boot/dts/spacemit/k1.dtsi	2026-07-03 08:45:38.795741412 -0400
++++ b/arch/riscv/boot/dts/spacemit/k1.dtsi	2026-07-03 08:45:39.455740474 -0400
+@@ -4,6 +4,7 @@
+  */
+ 
+ #include <dt-bindings/clock/spacemit,k1-syscon.h>
++#include <dt-bindings/phy/phy.h>
+ 
+ /dts-v1/;
+ / {
+@@ -53,9 +54,9 @@
+ 			compatible = "spacemit,x60", "riscv";
+ 			device_type = "cpu";
+ 			reg = <0>;
+-			riscv,isa = "rv64imafdcv_zicbom_zicbop_zicboz_zicntr_zicond_zicsr_zifencei_zihintpause_zihpm_zfh_zba_zbb_zbc_zbs_zkt_zvfh_zvkt_sscofpmf_sstc_svinval_svnapot_svpbmt";
++			riscv,isa = "rv64imafdcbv_zicbom_zicbop_zicboz_zicntr_zicond_zicsr_zifencei_zihintpause_zihpm_zfh_zba_zbb_zbc_zbs_zkt_zvfh_zvkt_sscofpmf_sstc_svinval_svnapot_svpbmt";
+ 			riscv,isa-base = "rv64i";
+-			riscv,isa-extensions = "i", "m", "a", "f", "d", "c", "v", "zicbom",
++			riscv,isa-extensions = "i", "m", "a", "f", "d", "c", "b", "v", "zicbom",
+ 					       "zicbop", "zicboz", "zicntr", "zicond", "zicsr",
+ 					       "zifencei", "zihintpause", "zihpm", "zfh", "zba",
+ 					       "zbb", "zbc", "zbs", "zkt", "zvfh", "zvkt",
+@@ -83,9 +84,9 @@
+ 			compatible = "spacemit,x60", "riscv";
+ 			device_type = "cpu";
+ 			reg = <1>;
+-			riscv,isa = "rv64imafdcv_zicbom_zicbop_zicboz_zicntr_zicond_zicsr_zifencei_zihintpause_zihpm_zfh_zba_zbb_zbc_zbs_zkt_zvfh_zvkt_sscofpmf_sstc_svinval_svnapot_svpbmt";
++			riscv,isa = "rv64imafdcbv_zicbom_zicbop_zicboz_zicntr_zicond_zicsr_zifencei_zihintpause_zihpm_zfh_zba_zbb_zbc_zbs_zkt_zvfh_zvkt_sscofpmf_sstc_svinval_svnapot_svpbmt";
+ 			riscv,isa-base = "rv64i";
+-			riscv,isa-extensions = "i", "m", "a", "f", "d", "c", "v", "zicbom",
++			riscv,isa-extensions = "i", "m", "a", "f", "d", "c", "b", "v", "zicbom",
+ 					       "zicbop", "zicboz", "zicntr", "zicond", "zicsr",
+ 					       "zifencei", "zihintpause", "zihpm", "zfh", "zba",
+ 					       "zbb", "zbc", "zbs", "zkt", "zvfh", "zvkt",
+@@ -113,9 +114,9 @@
+ 			compatible = "spacemit,x60", "riscv";
+ 			device_type = "cpu";
+ 			reg = <2>;
+-			riscv,isa = "rv64imafdcv_zicbom_zicbop_zicboz_zicntr_zicond_zicsr_zifencei_zihintpause_zihpm_zfh_zba_zbb_zbc_zbs_zkt_zvfh_zvkt_sscofpmf_sstc_svinval_svnapot_svpbmt";
++			riscv,isa = "rv64imafdcbv_zicbom_zicbop_zicboz_zicntr_zicond_zicsr_zifencei_zihintpause_zihpm_zfh_zba_zbb_zbc_zbs_zkt_zvfh_zvkt_sscofpmf_sstc_svinval_svnapot_svpbmt";
+ 			riscv,isa-base = "rv64i";
+-			riscv,isa-extensions = "i", "m", "a", "f", "d", "c", "v", "zicbom",
++			riscv,isa-extensions = "i", "m", "a", "f", "d", "c", "b", "v", "zicbom",
+ 					       "zicbop", "zicboz", "zicntr", "zicond", "zicsr",
+ 					       "zifencei", "zihintpause", "zihpm", "zfh", "zba",
+ 					       "zbb", "zbc", "zbs", "zkt", "zvfh", "zvkt",
+@@ -143,9 +144,9 @@
+ 			compatible = "spacemit,x60", "riscv";
+ 			device_type = "cpu";
+ 			reg = <3>;
+-			riscv,isa = "rv64imafdcv_zicbom_zicbop_zicboz_zicntr_zicond_zicsr_zifencei_zihintpause_zihpm_zfh_zba_zbb_zbc_zbs_zkt_zvfh_zvkt_sscofpmf_sstc_svinval_svnapot_svpbmt";
++			riscv,isa = "rv64imafdcbv_zicbom_zicbop_zicboz_zicntr_zicond_zicsr_zifencei_zihintpause_zihpm_zfh_zba_zbb_zbc_zbs_zkt_zvfh_zvkt_sscofpmf_sstc_svinval_svnapot_svpbmt";
+ 			riscv,isa-base = "rv64i";
+-			riscv,isa-extensions = "i", "m", "a", "f", "d", "c", "v", "zicbom",
++			riscv,isa-extensions = "i", "m", "a", "f", "d", "c", "b", "v", "zicbom",
+ 					       "zicbop", "zicboz", "zicntr", "zicond", "zicsr",
+ 					       "zifencei", "zihintpause", "zihpm", "zfh", "zba",
+ 					       "zbb", "zbc", "zbs", "zkt", "zvfh", "zvkt",
+@@ -173,9 +174,9 @@
+ 			compatible = "spacemit,x60", "riscv";
+ 			device_type = "cpu";
+ 			reg = <4>;
+-			riscv,isa = "rv64imafdcv_zicbom_zicbop_zicboz_zicntr_zicond_zicsr_zifencei_zihintpause_zihpm_zfh_zba_zbb_zbc_zbs_zkt_zvfh_zvkt_sscofpmf_sstc_svinval_svnapot_svpbmt";
++			riscv,isa = "rv64imafdcbv_zicbom_zicbop_zicboz_zicntr_zicond_zicsr_zifencei_zihintpause_zihpm_zfh_zba_zbb_zbc_zbs_zkt_zvfh_zvkt_sscofpmf_sstc_svinval_svnapot_svpbmt";
+ 			riscv,isa-base = "rv64i";
+-			riscv,isa-extensions = "i", "m", "a", "f", "d", "c", "v", "zicbom",
++			riscv,isa-extensions = "i", "m", "a", "f", "d", "c", "b", "v", "zicbom",
+ 					       "zicbop", "zicboz", "zicntr", "zicond", "zicsr",
+ 					       "zifencei", "zihintpause", "zihpm", "zfh", "zba",
+ 					       "zbb", "zbc", "zbs", "zkt", "zvfh", "zvkt",
+@@ -203,9 +204,9 @@
+ 			compatible = "spacemit,x60", "riscv";
+ 			device_type = "cpu";
+ 			reg = <5>;
+-			riscv,isa = "rv64imafdcv_zicbom_zicbop_zicboz_zicntr_zicond_zicsr_zifencei_zihintpause_zihpm_zfh_zba_zbb_zbc_zbs_zkt_zvfh_zvkt_sscofpmf_sstc_svinval_svnapot_svpbmt";
++			riscv,isa = "rv64imafdcbv_zicbom_zicbop_zicboz_zicntr_zicond_zicsr_zifencei_zihintpause_zihpm_zfh_zba_zbb_zbc_zbs_zkt_zvfh_zvkt_sscofpmf_sstc_svinval_svnapot_svpbmt";
+ 			riscv,isa-base = "rv64i";
+-			riscv,isa-extensions = "i", "m", "a", "f", "d", "c", "v", "zicbom",
++			riscv,isa-extensions = "i", "m", "a", "f", "d", "c", "b", "v", "zicbom",
+ 					       "zicbop", "zicboz", "zicntr", "zicond", "zicsr",
+ 					       "zifencei", "zihintpause", "zihpm", "zfh", "zba",
+ 					       "zbb", "zbc", "zbs", "zkt", "zvfh", "zvkt",
+@@ -233,9 +234,9 @@
+ 			compatible = "spacemit,x60", "riscv";
+ 			device_type = "cpu";
+ 			reg = <6>;
+-			riscv,isa = "rv64imafdcv_zicbom_zicbop_zicboz_zicntr_zicond_zicsr_zifencei_zihintpause_zihpm_zfh_zba_zbb_zbc_zbs_zkt_zvfh_zvkt_sscofpmf_sstc_svinval_svnapot_svpbmt";
++			riscv,isa = "rv64imafdcbv_zicbom_zicbop_zicboz_zicntr_zicond_zicsr_zifencei_zihintpause_zihpm_zfh_zba_zbb_zbc_zbs_zkt_zvfh_zvkt_sscofpmf_sstc_svinval_svnapot_svpbmt";
+ 			riscv,isa-base = "rv64i";
+-			riscv,isa-extensions = "i", "m", "a", "f", "d", "c", "v", "zicbom",
++			riscv,isa-extensions = "i", "m", "a", "f", "d", "c", "b", "v", "zicbom",
+ 					       "zicbop", "zicboz", "zicntr", "zicond", "zicsr",
+ 					       "zifencei", "zihintpause", "zihpm", "zfh", "zba",
+ 					       "zbb", "zbc", "zbs", "zkt", "zvfh", "zvkt",
+@@ -263,9 +264,9 @@
+ 			compatible = "spacemit,x60", "riscv";
+ 			device_type = "cpu";
+ 			reg = <7>;
+-			riscv,isa = "rv64imafdcv_zicbom_zicbop_zicboz_zicntr_zicond_zicsr_zifencei_zihintpause_zihpm_zfh_zba_zbb_zbc_zbs_zkt_zvfh_zvkt_sscofpmf_sstc_svinval_svnapot_svpbmt";
++			riscv,isa = "rv64imafdcbv_zicbom_zicbop_zicboz_zicntr_zicond_zicsr_zifencei_zihintpause_zihpm_zfh_zba_zbb_zbc_zbs_zkt_zvfh_zvkt_sscofpmf_sstc_svinval_svnapot_svpbmt";
+ 			riscv,isa-base = "rv64i";
+-			riscv,isa-extensions = "i", "m", "a", "f", "d", "c", "v", "zicbom",
++			riscv,isa-extensions = "i", "m", "a", "f", "d", "c", "b", "v", "zicbom",
+ 					       "zicbop", "zicboz", "zicntr", "zicond", "zicsr",
+ 					       "zifencei", "zihintpause", "zihpm", "zfh", "zba",
+ 					       "zbb", "zbc", "zbs", "zkt", "zvfh", "zvkt",
+@@ -332,12 +333,102 @@
+ 
+ 		osc_32k: clock-32k {
+ 			compatible = "fixed-clock";
+-			clock-frequency = <32000>;
++			clock-frequency = <32768>;
+ 			clock-output-names = "osc_32k";
+ 			#clock-cells = <0>;
+ 		};
+ 	};
+ 
++	thermal-zones {
++		soc-thermal {
++			polling-delay-passive = <0>;
++			polling-delay = <0>;
++			thermal-sensors = <&thermal 0>;
++
++			trips {
++				soc-crit {
++					temperature = <115000>;
++					hysteresis = <0>;
++					type = "critical";
++				};
++			};
++		};
++
++		package-thermal {
++			polling-delay-passive = <0>;
++			polling-delay = <0>;
++			thermal-sensors = <&thermal 1>;
++
++			trips {
++				package-crit {
++					temperature = <115000>;
++					hysteresis = <0>;
++					type = "critical";
++				};
++			};
++		};
++
++		gpu-thermal {
++			polling-delay-passive = <100>;
++			polling-delay = <0>;
++			thermal-sensors = <&thermal 2>;
++
++			trips {
++				gpu-alert {
++					temperature = <85000>;
++					hysteresis = <2000>;
++					type = "passive";
++				};
++
++				gpu-crit {
++					temperature = <115000>;
++					hysteresis = <0>;
++					type = "critical";
++				};
++			};
++		};
++
++		cluster0-thermal {
++			polling-delay-passive = <100>;
++			polling-delay = <0>;
++			thermal-sensors = <&thermal 3>;
++
++			trips {
++				cluster0-alert {
++					temperature = <85000>;
++					hysteresis = <2000>;
++					type = "passive";
++				};
++
++				cluster0-crit {
++					temperature = <115000>;
++					hysteresis = <0>;
++					type = "critical";
++				};
++			};
++		};
++
++		cluster1-thermal {
++			polling-delay-passive = <100>;
++			polling-delay = <0>;
++			thermal-sensors = <&thermal 4>;
++
++			trips {
++				cluster1-alert {
++					temperature = <85000>;
++					hysteresis = <2000>;
++					type = "passive";
++				};
++
++				cluster1-crit {
++					temperature = <115000>;
++					hysteresis = <0>;
++					type = "critical";
++				};
++			};
++		};
++	};
++
+ 	soc {
+ 		compatible = "simple-bus";
+ 		interrupt-parent = <&plic>;
+@@ -358,6 +449,130 @@
+ 			#reset-cells = <1>;
+ 		};
+ 
++		usbphy2: phy@c0a30000 {
++			compatible = "spacemit,k1-usb2-phy";
++			reg = <0x0 0xc0a30000 0x0 0x200>;
++			clocks = <&syscon_apmu CLK_USB30>;
++			#phy-cells = <0>;
++			status = "disabled";
++		};
++
++		combo_phy: phy@c0b10000 {
++			compatible = "spacemit,k1-combo-phy";
++			reg = <0x0 0xc0b10000 0x0 0x1000>;
++			clocks = <&vctcxo_24m>,
++				 <&syscon_apmu CLK_PCIE0_DBI>,
++				 <&syscon_apmu CLK_PCIE0_MASTER>,
++				 <&syscon_apmu CLK_PCIE0_SLAVE>;
++			clock-names = "refclk",
++				      "dbi",
++				      "mstr",
++				      "slv";
++			resets = <&syscon_apmu RESET_PCIE0_GLOBAL>,
++				 <&syscon_apmu RESET_PCIE0_DBI>,
++				 <&syscon_apmu RESET_PCIE0_MASTER>,
++				 <&syscon_apmu RESET_PCIE0_SLAVE>;
++			reset-names = "phy",
++				      "dbi",
++				      "mstr",
++				      "slv";
++			#phy-cells = <1>;
++			spacemit,apmu = <&syscon_apmu>;
++			status = "disabled";
++		};
++
++		pcie1_phy: phy@c0c10000 {
++			compatible = "spacemit,k1-pcie-phy";
++			reg = <0x0 0xc0c10000 0x0 0x1000>;
++			clocks = <&vctcxo_24m>;
++			clock-names = "refclk";
++			resets = <&syscon_apmu RESET_PCIE1_GLOBAL>;
++			reset-names = "phy";
++			#phy-cells = <0>;
++			status = "disabled";
++		};
++
++		pcie2_phy: phy@c0d10000 {
++			compatible = "spacemit,k1-pcie-phy";
++			reg = <0x0 0xc0d10000 0x0 0x1000>;
++			clocks = <&vctcxo_24m>;
++			clock-names = "refclk";
++			resets = <&syscon_apmu RESET_PCIE2_GLOBAL>;
++			reset-names = "phy";
++			#phy-cells = <0>;
++			status = "disabled";
++		};
++
++		i2c0: i2c@d4010800 {
++			compatible = "spacemit,k1-i2c";
++			reg = <0x0 0xd4010800 0x0 0x38>;
++			#address-cells = <1>;
++			#size-cells = <0>;
++			clocks = <&syscon_apbc CLK_TWSI0>,
++				 <&syscon_apbc CLK_TWSI0_BUS>;
++			clock-names = "func", "bus";
++			clock-frequency = <400000>;
++			resets = <&syscon_apbc RESET_TWSI0>;
++			interrupts = <36>;
++			status = "disabled";
++		};
++
++		i2c1: i2c@d4011000 {
++			compatible = "spacemit,k1-i2c";
++			reg = <0x0 0xd4011000 0x0 0x38>;
++			#address-cells = <1>;
++			#size-cells = <0>;
++			clocks = <&syscon_apbc CLK_TWSI1>,
++				 <&syscon_apbc CLK_TWSI1_BUS>;
++			clock-names = "func", "bus";
++			clock-frequency = <400000>;
++			resets = <&syscon_apbc RESET_TWSI1>;
++			interrupts = <37>;
++			status = "disabled";
++		};
++
++		i2c2: i2c@d4012000 {
++			compatible = "spacemit,k1-i2c";
++			reg = <0x0 0xd4012000 0x0 0x38>;
++			#address-cells = <1>;
++			#size-cells = <0>;
++			clocks = <&syscon_apbc CLK_TWSI2>,
++				 <&syscon_apbc CLK_TWSI2_BUS>;
++			clock-names = "func", "bus";
++			clock-frequency = <400000>;
++			resets = <&syscon_apbc RESET_TWSI2>;
++			interrupts = <38>;
++			status = "disabled";
++		};
++
++		i2c4: i2c@d4012800 {
++			compatible = "spacemit,k1-i2c";
++			reg = <0x0 0xd4012800 0x0 0x38>;
++			#address-cells = <1>;
++			#size-cells = <0>;
++			clocks = <&syscon_apbc CLK_TWSI4>,
++				 <&syscon_apbc CLK_TWSI4_BUS>;
++			clock-names = "func", "bus";
++			clock-frequency = <400000>;
++			resets = <&syscon_apbc RESET_TWSI4>;
++			interrupts = <40>;
++			status = "disabled";
++		};
++
++		i2c5: i2c@d4013800 {
++			compatible = "spacemit,k1-i2c";
++			reg = <0x0 0xd4013800 0x0 0x38>;
++			#address-cells = <1>;
++			#size-cells = <0>;
++			clocks = <&syscon_apbc CLK_TWSI5>,
++				 <&syscon_apbc CLK_TWSI5_BUS>;
++			clock-names = "func", "bus";
++			clock-frequency = <400000>;
++			resets = <&syscon_apbc RESET_TWSI5>;
++			interrupts = <41>;
++			status = "disabled";
++		};
++
+ 		syscon_apbc: system-controller@d4015000 {
+ 			compatible = "spacemit,k1-syscon-apbc";
+ 			reg = <0x0 0xd4015000 0x0 0x1000>;
+@@ -369,6 +584,31 @@
+ 			#reset-cells = <1>;
+ 		};
+ 
++		thermal: thermal@d4018000 {
++			compatible = "spacemit,k1-tsensor";
++			reg = <0x0 0xd4018000 0x0 0x100>;
++			clocks = <&syscon_apbc CLK_TSEN>,
++				 <&syscon_apbc CLK_TSEN_BUS>;
++			clock-names = "core", "bus";
++			interrupts = <61>;
++			resets = <&syscon_apbc RESET_TSEN>;
++			#thermal-sensor-cells = <1>;
++		};
++
++		i2c6: i2c@d4018800 {
++			compatible = "spacemit,k1-i2c";
++			reg = <0x0 0xd4018800 0x0 0x38>;
++			#address-cells = <1>;
++			#size-cells = <0>;
++			clocks = <&syscon_apbc CLK_TWSI6>,
++				 <&syscon_apbc CLK_TWSI6_BUS>;
++			clock-names = "func", "bus";
++			clock-frequency = <400000>;
++			resets = <&syscon_apbc RESET_TWSI6>;
++			interrupts = <70>;
++			status = "disabled";
++		};
++
+ 		gpio: gpio@d4019000 {
+ 			compatible = "spacemit,k1-gpio";
+ 			reg = <0x0 0xd4019000 0x0 0x100>;
+@@ -459,12 +699,41 @@
+ 			status = "disabled";
+ 		};
+ 
++		i2c7: i2c@d401d000 {
++			compatible = "spacemit,k1-i2c";
++			reg = <0x0 0xd401d000 0x0 0x38>;
++			#address-cells = <1>;
++			#size-cells = <0>;
++			clocks = <&syscon_apbc CLK_TWSI7>,
++				 <&syscon_apbc CLK_TWSI7_BUS>;
++			clock-names = "func", "bus";
++			clock-frequency = <400000>;
++			resets = <&syscon_apbc RESET_TWSI7>;
++			interrupts = <18>;
++			status = "disabled";
++		};
++
++		i2c8: i2c@d401d800 {
++			compatible = "spacemit,k1-i2c";
++			reg = <0x0 0xd401d800 0x0 0x38>;
++			#address-cells = <1>;
++			#size-cells = <0>;
++			clocks = <&syscon_apbc CLK_TWSI8>,
++				 <&syscon_apbc CLK_TWSI8_BUS>;
++			clock-names = "func", "bus";
++			clock-frequency = <400000>;
++			resets = <&syscon_apbc RESET_TWSI8>;
++			interrupts = <19>;
++			status = "disabled";
++		};
++
+ 		pinctrl: pinctrl@d401e000 {
+ 			compatible = "spacemit,k1-pinctrl";
+-			reg = <0x0 0xd401e000 0x0 0x400>;
++			reg = <0x0 0xd401e000 0x0 0x1000>;
+ 			clocks = <&syscon_apbc CLK_AIB>,
+ 				 <&syscon_apbc CLK_AIB_BUS>;
+ 			clock-names = "func", "bus";
++			spacemit,apbc = <&syscon_apbc>;
+ 		};
+ 
+ 		pwm8: pwm@d4020000 {
+@@ -643,6 +912,8 @@
+ 			#reset-cells = <1>;
+ 		};
+ 
++		/* sec_i2c3: 0xf0614000, not available from Linux */
++
+ 		camera-bus {
+ 			compatible = "simple-bus";
+ 			ranges;
+@@ -797,6 +1068,37 @@
+ 				status = "disabled";
+ 			};
+ 
++			qspi: spi@d420c000 {
++				compatible = "spacemit,k1-qspi";
++				#address-cells = <1>;
++				#size-cells = <0>;
++				reg = <0x0 0xd420c000 0x0 0x1000>,
++				      <0x0 0xb8000000 0x0 0xc00000>;
++				reg-names = "QuadSPI", "QuadSPI-memory";
++				clocks = <&syscon_apmu CLK_QSPI_BUS>,
++					 <&syscon_apmu CLK_QSPI>;
++				clock-names = "qspi_en", "qspi";
++				resets = <&syscon_apmu RESET_QSPI>,
++					 <&syscon_apmu RESET_QSPI_BUS>;
++				interrupts = <117>;
++				status = "disabled";
++			};
++
++			spi3: spi@d401c000 {
++				compatible = "spacemit,k1-spi";
++				reg = <0x0 0xd401c000 0x0 0x30>;
++				#address-cells = <1>;
++				#size-cells = <0>;
++				clocks = <&syscon_apbc CLK_SSP3>,
++					 <&syscon_apbc CLK_SSP3_BUS>;
++				clock-names = "core", "bus";
++				resets = <&syscon_apbc RESET_SSP3>;
++				interrupts = <55>;
++				dmas = <&pdma 20>, <&pdma 19>;
++				dma-names = "rx", "tx";
++				status = "disabled";
++			};
++
+ 			/* sec_uart1: 0xf0612000, not available from Linux */
+ 		};
+ 
+@@ -847,6 +1149,139 @@
+ 			#size-cells = <2>;
+ 			dma-ranges = <0x0 0x00000000 0x0 0x00000000 0x0 0x80000000>,
+ 				     <0x0 0xb8000000 0x1 0x38000000 0x3 0x48000000>;
++
++			pcie0: pcie@ca000000 {
++				device_type = "pci";
++				compatible = "spacemit,k1-pcie";
++				reg = <0x0 0xca000000 0x0 0x00001000>,
++				      <0x0 0xca300000 0x0 0x0001ff24>,
++				      <0x0 0x8f000000 0x0 0x00002000>,
++				      <0x0 0xc0b20000 0x0 0x00001000>;
++				reg-names = "dbi",
++					    "atu",
++					    "config",
++					    "link";
++				linux,pci-domain = <0>;
++				#address-cells = <3>;
++				#size-cells = <2>;
++				ranges = <0x01000000 0x0 0x00000000 0x0 0x8f002000 0x0 0x00100000>,
++					 <0x02000000 0x0 0x80000000 0x0 0x80000000 0x0 0x0f000000>;
++				interrupts = <141>;
++				interrupt-names = "msi";
++				clocks = <&syscon_apmu CLK_PCIE0_DBI>,
++					 <&syscon_apmu CLK_PCIE0_MASTER>,
++					 <&syscon_apmu CLK_PCIE0_SLAVE>;
++				clock-names = "dbi",
++					      "mstr",
++					      "slv";
++				resets = <&syscon_apmu RESET_PCIE0_DBI>,
++					 <&syscon_apmu RESET_PCIE0_MASTER>,
++					 <&syscon_apmu RESET_PCIE0_SLAVE>;
++				reset-names = "dbi",
++					      "mstr",
++					      "slv";
++				spacemit,apmu = <&syscon_apmu 0x03cc>;
++				status = "disabled";
++
++				pcie0_port: pcie@0 {
++					device_type = "pci";
++					compatible = "pciclass,0604";
++					reg = <0x0 0x0 0x0 0x0 0x0>;
++					bus-range = <0x01 0xff>;
++					#address-cells = <3>;
++					#size-cells = <2>;
++					ranges;
++				};
++			};
++
++			pcie1: pcie@ca400000 {
++				device_type = "pci";
++				compatible = "spacemit,k1-pcie";
++				reg = <0x0 0xca400000 0x0 0x00001000>,
++				      <0x0 0xca700000 0x0 0x0001ff24>,
++				      <0x0 0x9f000000 0x0 0x00002000>,
++				      <0x0 0xc0c20000 0x0 0x00001000>;
++				reg-names = "dbi",
++					    "atu",
++					    "config",
++					    "link";
++				linux,pci-domain = <1>;
++				#address-cells = <3>;
++				#size-cells = <2>;
++				ranges = <0x01000000 0x0 0x00000000 0x0 0x9f002000 0x0 0x00100000>,
++					 <0x02000000 0x0 0x90000000 0x0 0x90000000 0x0 0x0f000000>;
++				interrupts = <142>;
++				interrupt-names = "msi";
++				clocks = <&syscon_apmu CLK_PCIE1_DBI>,
++					 <&syscon_apmu CLK_PCIE1_MASTER>,
++					 <&syscon_apmu CLK_PCIE1_SLAVE>;
++				clock-names = "dbi",
++					      "mstr",
++					      "slv";
++				resets = <&syscon_apmu RESET_PCIE1_DBI>,
++					 <&syscon_apmu RESET_PCIE1_MASTER>,
++					 <&syscon_apmu RESET_PCIE1_SLAVE>;
++				reset-names = "dbi",
++					      "mstr",
++					      "slv";
++				spacemit,apmu = <&syscon_apmu 0x3d4>;
++				status = "disabled";
++
++				pcie1_port: pcie@0 {
++					device_type = "pci";
++					compatible = "pciclass,0604";
++					reg = <0x0 0x0 0x0 0x0 0x0>;
++					bus-range = <0x01 0xff>;
++					#address-cells = <3>;
++					#size-cells = <2>;
++					ranges;
++				};
++			};
++
++			pcie2: pcie@ca800000 {
++				device_type = "pci";
++				compatible = "spacemit,k1-pcie";
++				reg = <0x0 0xca800000 0x0 0x00001000>,
++				      <0x0 0xcab00000 0x0 0x0001ff24>,
++				      <0x0 0xb7000000 0x0 0x00002000>,
++				      <0x0 0xc0d20000 0x0 0x00001000>;
++				reg-names = "dbi",
++					    "atu",
++					    "config",
++					    "link";
++				linux,pci-domain = <2>;
++				#address-cells = <3>;
++				#size-cells = <2>;
++				ranges = <0x01000000 0x0 0x00000000 0x0 0xb7002000 0x0 0x00100000>,
++					 <0x42000000 0x0 0xa0000000 0x0 0xa0000000 0x0 0x10000000>,
++					 <0x02000000 0x0 0xb0000000 0x0 0xb0000000 0x0 0x07000000>;
++				interrupts = <143>;
++				interrupt-names = "msi";
++				clocks = <&syscon_apmu CLK_PCIE2_DBI>,
++					 <&syscon_apmu CLK_PCIE2_MASTER>,
++					 <&syscon_apmu CLK_PCIE2_SLAVE>;
++				clock-names = "dbi",
++					      "mstr",
++					      "slv";
++				resets = <&syscon_apmu RESET_PCIE2_DBI>,
++					 <&syscon_apmu RESET_PCIE2_MASTER>,
++					 <&syscon_apmu RESET_PCIE2_SLAVE>;
++				reset-names = "dbi",
++					      "mstr",
++					      "slv";
++				spacemit,apmu = <&syscon_apmu 0x3dc>;
++				status = "disabled";
++
++				pcie2_port: pcie@0 {
++					device_type = "pci";
++					compatible = "pciclass,0604";
++					reg = <0x0 0x0 0x0 0x0 0x0>;
++					bus-range = <0x01 0xff>;
++					#address-cells = <3>;
++					#size-cells = <2>;
++					ranges;
++				};
++			};
+ 		};
+ 
+ 		storage-bus {
+@@ -856,12 +1291,52 @@
+ 			#size-cells = <2>;
+ 			dma-ranges = <0x0 0x00000000 0x0 0x00000000 0x0 0x80000000>;
+ 
++			usb_dwc3: usb@c0a00000 {
++				compatible = "spacemit,k1-dwc3";
++				reg = <0x0 0xc0a00000 0x0 0x10000>;
++				clocks = <&syscon_apmu CLK_USB30>;
++				clock-names = "usbdrd30";
++				interrupts = <125>;
++				phys = <&usbphy2>, <&combo_phy PHY_TYPE_USB3>;
++				phy-names = "usb2-phy", "usb3-phy";
++				phy_type = "utmi";
++				resets = <&syscon_apmu RESET_USB30_AHB>,
++					 <&syscon_apmu RESET_USB30_VCC>,
++					 <&syscon_apmu RESET_USB30_PHY>;
++				reset-names = "ahb", "vcc", "phy";
++				reset-delay = <2>;
++				snps,hsphy_interface = "utmi";
++				snps,dis_enblslpm_quirk;
++				snps,dis-u2-freeclk-exists-quirk;
++				snps,dis-del-phy-power-chg-quirk;
++				snps,dis_u2_susphy_quirk;
++				snps,dis_u3_susphy_quirk;
++				snps,dis_rxdet_inp3_quirk;
++				status = "disabled";
++			};
++
++			sdhci0: mmc@d4280000 {
++				compatible = "spacemit,k1-sdhci";
++				reg = <0x0 0xd4280000 0x0 0x200>;
++				clocks = <&syscon_apmu CLK_SDH_AXI>,
++					 <&syscon_apmu CLK_SDH0>;
++				clock-names = "core", "io";
++				resets = <&syscon_apmu RESET_SDH_AXI>,
++					 <&syscon_apmu RESET_SDH0>;
++				reset-names = "axi", "sdh";
++				interrupts = <99>;
++				status = "disabled";
++			};
++
+ 			emmc: mmc@d4281000 {
+ 				compatible = "spacemit,k1-sdhci";
+ 				reg = <0x0 0xd4281000 0x0 0x200>;
+ 				clocks = <&syscon_apmu CLK_SDH_AXI>,
+ 					 <&syscon_apmu CLK_SDH2>;
+ 				clock-names = "core", "io";
++				resets = <&syscon_apmu RESET_SDH_AXI>,
++					 <&syscon_apmu RESET_SDH2>;
++				reset-names = "axi", "sdh";
+ 				interrupts = <101>;
+ 				status = "disabled";
+ 			};
+--- a/arch/riscv/boot/dts/spacemit/k1-pinctrl.dtsi	2026-07-03 08:45:38.923741236 -0400
++++ b/arch/riscv/boot/dts/spacemit/k1-pinctrl.dtsi	2026-07-03 08:45:39.455740474 -0400
+@@ -59,16 +59,510 @@
+ 		};
+ 	};
+ 
++	i2c2_0_cfg: i2c2-0-cfg {
++		i2c2-0-pins {
++			pinmux = <K1_PADCONF(84, 4)>,	/* I2C2_SCL */
++				 <K1_PADCONF(85, 4)>;	/* I2C2_SDA */
++		};
++	};
++
++	i2c8_cfg: i2c8-cfg {
++		i2c8-0-pins {
++			pinmux = <K1_PADCONF(93, 0)>,	/* PWR_SCL */
++				 <K1_PADCONF(94, 0)>;	/* PWR_SDA */
++		};
++	};
++
++	qspi_cfg: qspi-cfg {
++		qspi-pins {
++			pinmux = <K1_PADCONF(98, 0)>,    /* QSPI_DATA3 */
++				 <K1_PADCONF(99, 0)>,    /* QSPI_DATA2 */
++				 <K1_PADCONF(100, 0)>,   /* QSPI_DATA1 */
++				 <K1_PADCONF(101, 0)>,   /* QSPI_DATA0 */
++				 <K1_PADCONF(102, 0)>;   /* QSPI_CLK */
++
++			bias-disable;
++			drive-strength = <19>;
++			power-source = <3300>;
++		};
++
++		qspi-cs1-pins {
++			pinmux = <K1_PADCONF(103, 0)>;   /* QSPI_CS1 */
++			bias-pull-up = <0>;
++			drive-strength = <19>;
++			power-source = <3300>;
++		};
++	};
++
++	/omit-if-no-ref/
++	uart0_0_cfg: uart0-0-cfg {
++		uart0-0-pins {
++			pinmux = <K1_PADCONF(104, 3)>,	/* uart0_txd */
++				 <K1_PADCONF(105, 3)>;	/* uart0_rxd */
++			power-source = <3300>;
++			bias-pull-up = <0>;
++			drive-strength = <19>;
++		};
++	};
++
++	/omit-if-no-ref/
++	uart0_1_cfg: uart0-1-cfg {
++		uart0-1-pins {
++			pinmux = <K1_PADCONF(108, 1)>,	/* uart0_txd */
++				 <K1_PADCONF(80, 3)>;	/* uart0_rxd */
++			power-source = <3300>;
++			bias-pull-up = <0>;
++			drive-strength = <19>;
++		};
++	};
++
++	/omit-if-no-ref/
+ 	uart0_2_cfg: uart0-2-cfg {
+ 		uart0-2-pins {
+-			pinmux = <K1_PADCONF(68, 2)>,
+-				 <K1_PADCONF(69, 2)>;
++			pinmux = <K1_PADCONF(68, 2)>,	/* uart0_txd */
++				 <K1_PADCONF(69, 2)>;	/* uart0_rxd */
++			bias-pull-up = <0>;
++			drive-strength = <32>;
++		};
++	};
++
++	/omit-if-no-ref/
++	uart2_0_cfg: uart2-0-cfg {
++		uart2-0-pins {
++			pinmux = <K1_PADCONF(21, 1)>,	/* uart2_txd */
++				 <K1_PADCONF(22, 1)>;	/* uart2_rxd */
++			bias-pull-up = <0>;
++			drive-strength = <32>;
++		};
++	};
+ 
++	/omit-if-no-ref/
++	uart2_0_cts_rts_cfg: uart2-0-cts-rts-cfg {
++		uart2-0-pins {
++			pinmux = <K1_PADCONF(23, 1)>,	/* uart2_cts */
++				 <K1_PADCONF(24, 1)>;	/* uart2_rts */
+ 			bias-pull-up = <0>;
+ 			drive-strength = <32>;
+ 		};
+ 	};
+ 
++	/omit-if-no-ref/
++	uart3_0_cfg: uart3-0-cfg {
++		uart3-0-pins {
++			pinmux = <K1_PADCONF(81, 2)>,	/* uart3_txd */
++				 <K1_PADCONF(82, 2)>;	/* uart3_rxd */
++			bias-pull-up = <0>;
++			drive-strength = <32>;
++		};
++	};
++
++	/omit-if-no-ref/
++	uart3_0_cts_rts_cfg: uart3-0-cts-rts-cfg {
++		uart3-0-pins {
++			pinmux = <K1_PADCONF(83, 2)>,	/* uart3_cts */
++				 <K1_PADCONF(84, 2)>;	/* uart3_rts */
++			bias-pull-up = <0>;
++			drive-strength = <32>;
++		};
++	};
++
++	/omit-if-no-ref/
++	uart3_1_cfg: uart3-1-cfg {
++		uart3-1-pins {
++			pinmux = <K1_PADCONF(18, 2)>,	/* uart3_txd */
++				 <K1_PADCONF(19, 2)>;	/* uart3_rxd */
++			bias-pull-up = <0>;
++			drive-strength = <32>;
++		};
++	};
++
++	/omit-if-no-ref/
++	uart3_1_cts_rts_cfg: uart3-1-cts-rts-cfg {
++		uart3-1-pins {
++			pinmux = <K1_PADCONF(20, 2)>,	/* uart3_cts */
++				 <K1_PADCONF(21, 2)>;	/* uart3_rts */
++			bias-pull-up = <0>;
++			drive-strength = <32>;
++		};
++	};
++
++	/omit-if-no-ref/
++	uart3_2_cfg: uart3-2-cfg {
++		uart3-2-pins {
++			pinmux = <K1_PADCONF(53, 4)>,	/* uart3_txd */
++				 <K1_PADCONF(54, 4)>;	/* uart3_rxd */
++			bias-pull-up = <0>;
++			drive-strength = <32>;
++		};
++	};
++
++	/omit-if-no-ref/
++	uart3_2_cts_rts_cfg: uart3-2-cts-rts-cfg {
++		uart3-2-pins {
++			pinmux = <K1_PADCONF(55, 4)>,	/* uart3_cts */
++				 <K1_PADCONF(56, 4)>;	/* uart3_rts */
++			bias-pull-up = <0>;
++			drive-strength = <32>;
++		};
++	};
++
++	/omit-if-no-ref/
++	uart4_0_cfg: uart4-0-cfg {
++		uart4-0-pins {
++			pinmux = <K1_PADCONF(100, 4)>,	/* uart4_txd */
++				 <K1_PADCONF(101, 4)>;	/* uart4_rxd */
++			power-source = <3300>;
++			bias-pull-up = <0>;
++			drive-strength = <19>;
++		};
++	};
++
++	/omit-if-no-ref/
++	uart4_1_cfg: uart4-1-cfg {
++		uart4-1-pins {
++			pinmux = <K1_PADCONF(83, 3)>,	/* uart4_txd */
++				 <K1_PADCONF(84, 3)>;	/* uart4_rxd */
++			bias-pull-up = <0>;
++			drive-strength = <32>;
++		};
++	};
++
++	/omit-if-no-ref/
++	uart4_1_cts_rts_cfg: uart4-1-cts-rts-cfg {
++		uart4-1-pins {
++			pinmux = <K1_PADCONF(81, 3)>,	/* uart4_cts */
++				 <K1_PADCONF(82, 3)>;	/* uart4_rts */
++			bias-pull-up = <0>;
++			drive-strength = <32>;
++		};
++	};
++
++	/omit-if-no-ref/
++	uart4_2_cfg: uart4-2-cfg {
++		uart4-2-pins {
++			pinmux = <K1_PADCONF(23, 2)>,	/* uart4_txd */
++				 <K1_PADCONF(24, 2)>;	/* uart4_rxd */
++			bias-pull-up = <0>;
++			drive-strength = <32>;
++		};
++	};
++
++	/omit-if-no-ref/
++	uart4_3_cfg: uart4-3-cfg {
++		uart4-3-pins {
++			pinmux = <K1_PADCONF(33, 2)>,	/* uart4_txd */
++				 <K1_PADCONF(34, 2)>;	/* uart4_rxd */
++			bias-pull-up = <0>;
++			drive-strength = <32>;
++		};
++	};
++
++	/omit-if-no-ref/
++	uart4_3_cts_rts_cfg: uart4-3-cts-rts-cfg {
++		uart4-3-pins {
++			pinmux = <K1_PADCONF(35, 2)>,	/* uart4_cts */
++				 <K1_PADCONF(36, 2)>;	/* uart4_rts */
++			bias-pull-up = <0>;
++			drive-strength = <32>;
++		};
++	};
++
++	/omit-if-no-ref/
++	uart4_4_cfg: uart4-4-cfg {
++		uart4-4-pins {
++			pinmux = <K1_PADCONF(111, 4)>,	/* uart4_txd */
++				 <K1_PADCONF(112, 4)>;	/* uart4_rxd */
++			bias-pull-up = <0>;
++			drive-strength = <32>;
++		};
++	};
++
++	/omit-if-no-ref/
++	uart4_4_cts_rts_cfg: uart4-4-cts-rts-cfg {
++		uart4-4-pins {
++			pinmux = <K1_PADCONF(113, 4)>,	/* uart4_cts */
++				 <K1_PADCONF(114, 4)>;	/* uart4_rts */
++			bias-pull-up = <0>;
++			drive-strength = <32>;
++		};
++	};
++
++	/omit-if-no-ref/
++	uart5_0_cfg: uart5-0-cfg {
++		uart5-0-pins {
++			pinmux = <K1_PADCONF(102, 3)>,	/* uart5_txd */
++				 <K1_PADCONF(103, 3)>;	/* uart5_rxd */
++			power-source = <3300>;
++			bias-pull-up = <0>;
++			drive-strength = <19>;
++		};
++	};
++
++	/omit-if-no-ref/
++	uart5_1_cfg: uart5-1-cfg {
++		uart5-1-pins {
++			pinmux = <K1_PADCONF(25, 2)>,	/* uart5_txd */
++				 <K1_PADCONF(26, 2)>;	/* uart5_rxd */
++			bias-pull-up = <0>;
++			drive-strength = <32>;
++		};
++	};
++
++	/omit-if-no-ref/
++	uart5_1_cts_rts_cfg: uart5-1-cts-rts-cfg {
++		uart5-1-pins {
++			pinmux = <K1_PADCONF(27, 2)>,	/* uart5_cts */
++				 <K1_PADCONF(28, 2)>;	/* uart5_rts */
++			bias-pull-up = <0>;
++			drive-strength = <32>;
++		};
++	};
++
++	/omit-if-no-ref/
++	uart5_2_cfg: uart5-2-cfg {
++		uart5-2-pins {
++			pinmux = <K1_PADCONF(42, 2)>,	/* uart5_txd */
++				 <K1_PADCONF(43, 2)>;	/* uart5_rxd */
++			bias-pull-up = <0>;
++			drive-strength = <32>;
++		};
++	};
++
++	/omit-if-no-ref/
++	uart5_2_cts_rts_cfg: uart5-2-cts-rts-cfg {
++		uart5-2-pins {
++			pinmux = <K1_PADCONF(44, 2)>,	/* uart5_cts */
++				 <K1_PADCONF(45, 2)>;	/* uart5_rts */
++			bias-pull-up = <0>;
++			drive-strength = <32>;
++		};
++	};
++
++	/omit-if-no-ref/
++	uart5_3_cfg: uart5-3-cfg {
++		uart5-3-pins {
++			pinmux = <K1_PADCONF(70, 4)>,	/* uart5_txd */
++				 <K1_PADCONF(71, 4)>;	/* uart5_rxd */
++			bias-pull-up = <0>;
++			drive-strength = <32>;
++		};
++	};
++
++	/omit-if-no-ref/
++	uart5_3_cts_rts_cfg: uart5-3-cts-rts-cfg {
++		uart5-3-pins {
++			pinmux = <K1_PADCONF(72, 4)>,	/* uart5_cts */
++				 <K1_PADCONF(73, 4)>;	/* uart5_rts */
++			bias-pull-up = <0>;
++			drive-strength = <32>;
++		};
++	};
++
++	/omit-if-no-ref/
++	uart6_0_cfg: uart6-0-cfg {
++		uart6-0-pins {
++			pinmux = <K1_PADCONF(86, 2)>,	/* uart6_txd */
++				 <K1_PADCONF(87, 2)>;	/* uart6_rxd */
++			bias-pull-up = <0>;
++			drive-strength = <32>;
++		};
++	};
++
++	/omit-if-no-ref/
++	uart6_0_cts_rts_cfg: uart6-0-cts-rts-cfg {
++		uart6-0-pins {
++			pinmux = <K1_PADCONF(85, 2)>,	/* uart6_cts */
++				 <K1_PADCONF(90, 2)>;	/* uart6_rts */
++			bias-pull-up = <0>;
++			drive-strength = <32>;
++		};
++	};
++
++	/omit-if-no-ref/
++	uart6_1_cfg: uart6-1-cfg {
++		uart6-1-pins {
++			pinmux = <K1_PADCONF(0, 2)>,	/* uart6_txd */
++				 <K1_PADCONF(1, 2)>;	/* uart6_rxd */
++			bias-pull-up = <0>;
++			drive-strength = <32>;
++		};
++	};
++
++	/omit-if-no-ref/
++	uart6_1_cts_rts_cfg: uart6-1-cts-rts-cfg {
++		uart6-1-pins {
++			pinmux = <K1_PADCONF(2, 2)>,	/* uart6_cts */
++				 <K1_PADCONF(3, 2)>;	/* uart6_rts */
++			bias-pull-up = <0>;
++			drive-strength = <32>;
++		};
++	};
++
++	/omit-if-no-ref/
++	uart6_2_cfg: uart6-2-cfg {
++		uart6-2-pins {
++			pinmux = <K1_PADCONF(56, 2)>,	/* uart6_txd */
++				 <K1_PADCONF(57, 2)>;	/* uart6_rxd */
++			bias-pull-up = <0>;
++			drive-strength = <32>;
++		};
++	};
++
++	/omit-if-no-ref/
++	uart7_0_cfg: uart7-0-cfg {
++		uart7-0-pins {
++			pinmux = <K1_PADCONF(88, 2)>,	/* uart7_txd */
++				 <K1_PADCONF(89, 2)>;	/* uart7_rxd */
++			bias-pull-up = <0>;
++			drive-strength = <32>;
++		};
++	};
++
++	/omit-if-no-ref/
++	uart7_1_cfg: uart7-1-cfg {
++		uart7-1-pins {
++			pinmux = <K1_PADCONF(4, 2)>,	/* uart7_txd */
++				 <K1_PADCONF(5, 2)>;	/* uart7_rxd */
++			bias-pull-up = <0>;
++			drive-strength = <32>;
++		};
++	};
++
++	/omit-if-no-ref/
++	uart7_1_cts_rts_cfg: uart7-1-cts-rts-cfg {
++		uart7-1-pins {
++			pinmux = <K1_PADCONF(6, 2)>,	/* uart7_cts */
++				 <K1_PADCONF(7, 2)>;	/* uart7_rts */
++			bias-pull-up = <0>;
++			drive-strength = <32>;
++		};
++	};
++
++	/omit-if-no-ref/
++	uart8_0_cfg: uart8-0-cfg {
++		uart8-0-pins {
++			pinmux = <K1_PADCONF(82, 4)>,	/* uart8_txd */
++				 <K1_PADCONF(83, 4)>;	/* uart8_rxd */
++			bias-pull-up = <0>;
++			drive-strength = <32>;
++		};
++	};
++
++	/omit-if-no-ref/
++	uart8_1_cfg: uart8-1-cfg {
++		uart8-1-pins {
++			pinmux = <K1_PADCONF(8, 2)>,	/* uart8_txd */
++				 <K1_PADCONF(9, 2)>;	/* uart8_rxd */
++			bias-pull-up = <0>;
++			drive-strength = <32>;
++		};
++	};
++
++	/omit-if-no-ref/
++	uart8_1_cts_rts_cfg: uart8-1-cts-rts-cfg {
++		uart8-1-pins {
++			pinmux = <K1_PADCONF(10, 2)>,	/* uart8_cts */
++				 <K1_PADCONF(11, 2)>;	/* uart8_rts */
++			bias-pull-up = <0>;
++			drive-strength = <32>;
++		};
++	};
++
++	/omit-if-no-ref/
++	uart8_2_cfg: uart8-2-cfg {
++		uart8-2-pins {
++			pinmux = <K1_PADCONF(75, 4)>,	/* uart8_txd */
++				 <K1_PADCONF(76, 4)>;	/* uart8_rxd */
++			power-source = <3300>;
++			bias-pull-up = <0>;
++			drive-strength = <19>;
++		};
++	};
++
++	/omit-if-no-ref/
++	uart8_2_cts_rts_cfg: uart8-2-cts-rts-cfg {
++		uart8-2-pins {
++			pinmux = <K1_PADCONF(77, 4)>,	/* uart8_cts */
++				 <K1_PADCONF(78, 4)>;	/* uart8_rts */
++			power-source = <3300>;
++			bias-pull-up = <0>;
++			drive-strength = <19>;
++		};
++	};
++
++	/omit-if-no-ref/
++	uart9_0_cfg: uart9-0-cfg {
++		uart9-0-pins {
++			pinmux = <K1_PADCONF(12, 2)>,	/* uart9_txd */
++				 <K1_PADCONF(13, 2)>;	/* uart9_rxd */
++			bias-pull-up = <0>;
++			drive-strength = <32>;
++		};
++	};
++
++	/omit-if-no-ref/
++	uart9_1_cfg: uart9-1-cfg {
++		uart9-1-pins {
++			pinmux = <K1_PADCONF(116, 3)>,	/* uart9_txd */
++				 <K1_PADCONF(117, 3)>;	/* uart9_rxd */
++			bias-pull-up = <0>;
++			drive-strength = <32>;
++		};
++	};
++
++	/omit-if-no-ref/
++	uart9_1_cts_rts_cfg: uart9-1-cts-rts-cfg {
++		uart9-1-pins {
++			pinmux = <K1_PADCONF(110, 3)>,	/* uart9_cts */
++				 <K1_PADCONF(115, 3)>;	/* uart9_rts */
++			bias-pull-up = <0>;
++			drive-strength = <32>;
++		};
++	};
++
++	/omit-if-no-ref/
++	uart9_2_cfg: uart9-2-cfg {
++		uart9-2-pins {
++			pinmux = <K1_PADCONF(72, 2)>,	/* uart9_txd */
++				 <K1_PADCONF(73, 2)>;	/* uart9_rxd */
++			bias-pull-up = <0>;
++			drive-strength = <32>;
++		};
++	};
++
++	pcie0_3_cfg: pcie0-3-cfg {
++		pcie0-3-pins {
++			pinmux = <K1_PADCONF(54, 3)>,	/* PERST# */
++				 <K1_PADCONF(55, 3)>,	/* WAKE# */
++				 <K1_PADCONF(53, 3)>;	/* CLKREQ# */
++
++			bias-pull-up = <0>;
++			drive-strength = <21>;
++		};
++	};
++
++	pcie1_3_cfg: pcie1-3-cfg {
++		pcie1-3-pins {
++			pinmux = <K1_PADCONF(59, 4)>,	/* PERST# */
++				 <K1_PADCONF(60, 4)>,	/* WAKE# */
++				 <K1_PADCONF(61, 4)>;	/* CLKREQ# */
++
++			bias-pull-up = <0>;
++			drive-strength = <21>;
++		};
++	};
++
++	pcie2_4_cfg: pcie2-4-cfg {
++		pcie2-4-pins {
++			pinmux = <K1_PADCONF(62, 4)>,	/* PERST# */
++				 <K1_PADCONF(112, 3)>,	/* WAKE# */
++				 <K1_PADCONF(117, 4)>;	/* CLKREQ# */
++
++			bias-pull-up = <0>;
++			drive-strength = <21>;
++		};
++	};
++
+ 	pwm14_1_cfg: pwm14-1-cfg {
+ 		pwm14-1-pins {
+ 			pinmux = <K1_PADCONF(44, 4)>;
+@@ -76,4 +570,64 @@
+ 			drive-strength = <32>;
+ 		};
+ 	};
++
++	ssp3_0_cfg: ssp3-0-cfg {
++		ssp3-0-pins {
++			pinmux = <K1_PADCONF(75, 2)>,	/* SCLK */
++				 <K1_PADCONF(77, 2)>,	/* MOSI  */
++				 <K1_PADCONF(78, 2)>;	/* MISO */
++
++			bias-disable;
++			drive-strength = <19>;
++			power-source = <3300>;
++		};
++
++		ssp3-0-frm-pins {
++			pinmux = <K1_PADCONF(76, 2)>;	/* FRM (frame) */
++
++			bias-pull-up = <0>;
++			drive-strength = <19>;
++			power-source = <3300>;
++		};
++	};
++
++	mmc1_cfg: mmc1-cfg {
++		mmc1-data-cmd-pins {
++			pinmux = <K1_PADCONF(104, 0)>,   /* mmc1_d3 */
++				 <K1_PADCONF(105, 0)>,   /* mmc1_d2 */
++				 <K1_PADCONF(106, 0)>,   /* mmc1_d1 */
++				 <K1_PADCONF(107, 0)>,   /* mmc1_d0 */
++				 <K1_PADCONF(108, 0)>;   /* mmc1_cmd */
++			bias-pull-up = <1>;
++			drive-strength = <19>;
++			power-source = <3300>;
++		};
++
++		mmc1-clk-pins {
++			pinmux = <K1_PADCONF(109, 0)>;   /* mmc1_clk */
++			bias-pull-down = <1>;
++			drive-strength = <19>;
++			power-source = <3300>;
++		};
++	};
++
++	mmc1_uhs_cfg: mmc1-uhs-cfg {
++		mmc1-data-cmd-pins {
++			pinmux = <K1_PADCONF(104, 0)>,   /* mmc1_d3 */
++				 <K1_PADCONF(105, 0)>,   /* mmc1_d2 */
++				 <K1_PADCONF(106, 0)>,   /* mmc1_d1 */
++				 <K1_PADCONF(107, 0)>,   /* mmc1_d0 */
++				 <K1_PADCONF(108, 0)>;   /* mmc1_cmd */
++			bias-pull-up = <1>;
++			drive-strength = <42>;
++			power-source = <1800>;
++		};
++
++		mmc1-clk-pins {
++			pinmux = <K1_PADCONF(109, 0)>;   /* mmc1_clk */
++			bias-pull-down = <1>;
++			drive-strength = <42>;
++			power-source = <1800>;
++		};
++	};
+ };
+--- a/arch/riscv/boot/dts/spacemit/k1-orangepi-rv2.dts	2026-07-03 08:45:39.079741007 -0400
++++ b/arch/riscv/boot/dts/spacemit/k1-orangepi-rv2.dts	2026-07-03 08:45:39.455740474 -0400
+@@ -15,12 +15,55 @@
+ 
+ 	aliases {
+ 		serial0 = &uart0;
++		ethernet0 = &eth0;
++		ethernet1 = &eth1;
++		mmc0 = &emmc;
++		mmc1 = &sdhci0;
+ 	};
+ 
+ 	chosen {
+ 		stdout-path = "serial0";
+ 	};
+ 
++	pcie_vcc3v3: regulator-pcie-vcc3v3 {
++		compatible = "regulator-fixed";
++		enable-active-high;
++		gpios = <&gpio K1_GPIO(116) GPIO_ACTIVE_HIGH>;
++		regulator-name = "pcie_vcc3v3";
++		regulator-min-microvolt = <3300000>;
++		regulator-max-microvolt = <3300000>;
++		vin-supply = <&vcc_5v0>;
++	};
++
++	vcc_5v0: regulator-vcc-5v0 {
++		compatible = "regulator-fixed";
++		regulator-name = "vcc_5v0";
++		regulator-always-on;
++		regulator-boot-on;
++		regulator-min-microvolt = <5000000>;
++		regulator-max-microvolt = <5000000>;
++	};
++
++	vcc4v0: regulator-vcc4v0 {
++		compatible = "regulator-fixed";
++		regulator-name = "vcc4v0";
++		regulator-always-on;
++		regulator-boot-on;
++		regulator-min-microvolt = <4000000>;
++		regulator-max-microvolt = <4000000>;
++		vin-supply = <&vcc_5v0>;
++	};
++
++	vcc5v0_usb30: regulator-vcc5v0-usb30 {
++		compatible = "regulator-fixed";
++		enable-active-high;
++		gpios = <&gpio K1_GPIO(123) GPIO_ACTIVE_HIGH>;
++		regulator-name = "vcc5v0_usb30";
++		regulator-min-microvolt = <5000000>;
++		regulator-max-microvolt = <5000000>;
++		vin-supply = <&vcc_5v0>;
++	};
++
+ 	leds {
+ 		compatible = "gpio-leds";
+ 
+@@ -33,8 +76,311 @@
+ 	};
+ };
+ 
++&combo_phy {
++	status = "okay";
++};
++
++&emmc {
++	bus-width = <8>;
++	mmc-hs400-1_8v;
++	mmc-hs400-enhanced-strobe;
++	no-sd;
++	no-sdio;
++	non-removable;
++	status = "okay";
++};
++
++&eth0 {
++	phy-handle = <&rgmii0>;
++	phy-mode = "rgmii-id";
++	pinctrl-names = "default";
++	pinctrl-0 = <&gmac0_cfg>;
++	rx-internal-delay-ps = <0>;
++	tx-internal-delay-ps = <0>;
++	status = "okay";
++
++	mdio-bus {
++		#address-cells = <0x1>;
++		#size-cells = <0x0>;
++
++		reset-gpios = <&gpio K1_GPIO(110) GPIO_ACTIVE_LOW>;
++		reset-delay-us = <10000>;
++		reset-post-delay-us = <100000>;
++
++		rgmii0: phy@1 {
++			reg = <0x1>;
++			motorcomm,auto-sleep-disabled;
++		};
++	};
++};
++
++&eth1 {
++	phy-handle = <&rgmii1>;
++	phy-mode = "rgmii-id";
++	pinctrl-names = "default";
++	pinctrl-0 = <&gmac1_cfg>;
++	rx-internal-delay-ps = <0>;
++	tx-internal-delay-ps = <250>;
++	status = "okay";
++
++	mdio-bus {
++		#address-cells = <0x1>;
++		#size-cells = <0x0>;
++
++		reset-gpios = <&gpio K1_GPIO(115) GPIO_ACTIVE_LOW>;
++		reset-delay-us = <10000>;
++		reset-post-delay-us = <100000>;
++
++		rgmii1: phy@1 {
++			reg = <0x1>;
++			motorcomm,auto-sleep-disabled;
++		};
++	};
++};
++
++&pdma {
++	status = "okay";
++};
++
++&i2c8 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&i2c8_cfg>;
++	status = "okay";
++
++	pmic@41 {
++		compatible = "spacemit,p1";
++		reg = <0x41>;
++		interrupts = <64>;
++		vin1-supply = <&vcc4v0>;
++		vin2-supply = <&vcc4v0>;
++		vin3-supply = <&vcc4v0>;
++		vin4-supply = <&vcc4v0>;
++		vin5-supply = <&vcc4v0>;
++		vin6-supply = <&vcc4v0>;
++		aldoin-supply = <&vcc4v0>;
++		dldoin1-supply = <&buck5>;
++		dldoin2-supply = <&buck5>;
++
++		regulators {
++			buck1 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3450000>;
++				regulator-ramp-delay = <5000>;
++				regulator-always-on;
++			};
++
++			buck2 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3450000>;
++				regulator-ramp-delay = <5000>;
++				regulator-always-on;
++			};
++
++			buck3_1v8: buck3 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <1800000>;
++				regulator-ramp-delay = <5000>;
++				regulator-always-on;
++			};
++
++			buck4_3v3: buck4 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3300000>;
++				regulator-ramp-delay = <5000>;
++				regulator-always-on;
++			};
++
++			buck5: buck5 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3450000>;
++				regulator-ramp-delay = <5000>;
++				regulator-always-on;
++			};
++
++			buck6 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3450000>;
++				regulator-ramp-delay = <5000>;
++				regulator-always-on;
++			};
++
++			aldo1: aldo1 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3400000>;
++				regulator-boot-on;
++			};
++
++			aldo2 {
++				/* not connected */
++			};
++
++			aldo3 {
++				/* not connected */
++			};
++
++			aldo4 {
++				/* not connected */
++			};
++
++			dldo1 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3400000>;
++				regulator-boot-on;
++			};
++
++			dldo2 {
++				/* not connected */
++			};
++
++			dldo3 {
++				/* not connected */
++			};
++
++			dldo4 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3400000>;
++				regulator-always-on;
++			};
++
++			dldo5 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3400000>;
++			};
++
++			dldo6 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3400000>;
++				regulator-always-on;
++			};
++
++			dldo7 {
++				/* not connected */
++			};
++		};
++	};
++};
++
++&pcie1_phy {
++	pinctrl-names = "default";
++	pinctrl-0 = <&pcie1_3_cfg>;
++	status = "okay";
++};
++
++&pcie1_port {
++	phys = <&pcie1_phy>;
++	vpcie3v3-supply = <&pcie_vcc3v3>;
++};
++
++&pcie1 {
++	status = "okay";
++};
++
++&pcie2_phy {
++	pinctrl-names = "default";
++	pinctrl-0 = <&pcie2_4_cfg>;
++	status = "okay";
++};
++
++&pcie2_port {
++	phys = <&pcie2_phy>;
++	vpcie3v3-supply = <&pcie_vcc3v3>;
++};
++
++&pcie2 {
++	status = "okay";
++};
++
++&qspi {
++	pinctrl-names = "default";
++	pinctrl-0 = <&qspi_cfg>;
++	status = "okay";
++
++	flash@0 {
++		compatible = "jedec,spi-nor";
++		reg = <0>;
++		spi-max-frequency = <26500000>;
++		spi-rx-bus-width = <4>;
++		spi-tx-bus-width = <4>;
++		vcc-supply = <&buck3_1v8>;
++
++		partitions {
++			compatible = "fixed-partitions";
++			#address-cells = <1>;
++			#size-cells = <1>;
++
++			bootinfo@0 {
++				reg = <0x00000 0x010000>;
++			};
++
++			private@10000 {
++				reg = <0x10000 0x010000>;
++			};
++
++			fsbl@20000 {
++				reg = <0x20000 0x040000>;
++			};
++
++			env@60000 {
++				reg = <0x60000 0x010000>;
++			};
++
++			opensbi@70000 {
++				reg = <0x70000 0x030000>;
++			};
++
++			uboot@a0000 {
++				reg = <0xa0000 0x760000>;
++			};
++		};
++	};
++};
++
+ &uart0 {
+ 	pinctrl-names = "default";
+ 	pinctrl-0 = <&uart0_2_cfg>;
+ 	status = "okay";
+ };
++
++&usbphy2 {
++	status = "okay";
++};
++
++&usb_dwc3 {
++	dr_mode = "host";
++	#address-cells = <1>;
++	#size-cells = <0>;
++	vbus-supply = <&vcc5v0_usb30>;
++	status = "okay";
++
++	hub_2_0: hub@1 {
++		compatible = "usb5e3,610";
++		reg = <0x1>;
++		peer-hub = <&hub_3_0>;
++		vdd-supply = <&vcc_5v0>;
++	};
++
++	hub_3_0: hub@2 {
++		compatible = "usb5e3,620";
++		reg = <0x2>;
++		peer-hub = <&hub_2_0>;
++		vdd-supply = <&vcc_5v0>;
++	};
++};
++
++&sdhci0 {
++	pinctrl-names = "default", "uhs";
++	pinctrl-0 = <&mmc1_cfg>;
++	pinctrl-1 = <&mmc1_uhs_cfg>;
++	bus-width = <4>;
++	cd-gpios = <&gpio K1_GPIO(80) GPIO_ACTIVE_LOW>;
++	no-mmc;
++	no-sdio;
++	disable-wp;
++	cap-sd-highspeed;
++	vmmc-supply = <&buck4_3v3>;
++	vqmmc-supply = <&aldo1>;
++	sd-uhs-sdr25;
++	sd-uhs-sdr50;
++	sd-uhs-sdr104;
++	status = "okay";
++};
+--- a/arch/riscv/boot/dts/spacemit/k1-bananapi-f3.dts	2026-07-03 08:45:39.255740759 -0400
++++ b/arch/riscv/boot/dts/spacemit/k1-bananapi-f3.dts	2026-07-03 08:45:39.455740474 -0400
+@@ -14,10 +14,15 @@
+ 		ethernet0 = &eth0;
+ 		ethernet1 = &eth1;
+ 		serial0 = &uart0;
++		spi3 = &spi3;
++		i2c2 = &i2c2;
++		i2c8 = &i2c8;
++		mmc0 = &emmc;
++		mmc1 = &sdhci0;
+ 	};
+ 
+ 	chosen {
+-		stdout-path = "serial0";
++		stdout-path = "serial0:115200n8";
+ 	};
+ 
+ 	leds {
+@@ -30,6 +35,56 @@
+ 			default-state = "on";
+ 		};
+ 	};
++
++	pcie_vcc_3v3: regulator-pcie-vcc3v3 {
++		compatible = "regulator-fixed";
++		regulator-name = "PCIE_VCC3V3";
++		regulator-min-microvolt = <3300000>;
++		regulator-max-microvolt = <3300000>;
++		regulator-always-on;
++	};
++
++	reg_dc_in: regulator-dc-in-12v {
++		compatible = "regulator-fixed";
++		regulator-name = "dc_in_12v";
++		regulator-min-microvolt = <12000000>;
++		regulator-max-microvolt = <12000000>;
++		regulator-boot-on;
++		regulator-always-on;
++	};
++
++	reg_vcc_4v: regulator-vcc-4v {
++		compatible = "regulator-fixed";
++		regulator-name = "vcc_4v";
++		regulator-min-microvolt = <4000000>;
++		regulator-max-microvolt = <4000000>;
++		regulator-boot-on;
++		regulator-always-on;
++		vin-supply = <&reg_dc_in>;
++	};
++
++	regulator-usb3-vbus-5v {
++		compatible = "regulator-fixed";
++		regulator-name = "USB30_VBUS";
++		regulator-min-microvolt = <5000000>;
++		regulator-max-microvolt = <5000000>;
++		regulator-always-on;
++		gpio = <&gpio K1_GPIO(97) GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++	};
++
++	usb3_hub_5v: regulator-usb3-hub-5v {
++		compatible = "regulator-fixed";
++		regulator-name = "USB30_HUB";
++		regulator-min-microvolt = <5000000>;
++		regulator-max-microvolt = <5000000>;
++		gpio = <&gpio K1_GPIO(123) GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++	};
++};
++
++&combo_phy {
++	status = "okay";
+ };
+ 
+ &emmc {
+@@ -92,8 +147,250 @@
+ 	status = "okay";
+ };
+ 
++&qspi {
++	pinctrl-names = "default";
++	pinctrl-0 = <&qspi_cfg>;
++	status = "okay";
++};
++
++&i2c2 {
++	pinctrl-0 = <&i2c2_0_cfg>;
++	pinctrl-names = "default";
++	status = "okay";
++
++	eeprom@50 {
++		compatible = "atmel,24c02";
++		reg = <0x50>;
++		vcc-supply = <&buck3_1v8>; /* EEPROM_VCC1V8 */
++		pagesize = <16>;
++		read-only;
++		size = <256>;
++
++		nvmem-layout {
++			compatible = "onie,tlv-layout";
++
++			mac-address {
++				#nvmem-cell-cells = <1>;
++			};
++
++			num-macs {
++			};
++
++			serial-number {
++			};
++		};
++	};
++};
++
++&i2c8 {
++	pinctrl-0 = <&i2c8_cfg>;
++	pinctrl-names = "default";
++	status = "okay";
++
++	pmic@41 {
++		compatible = "spacemit,p1";
++		reg = <0x41>;
++		interrupts = <64>;
++		vin1-supply = <&reg_vcc_4v>;
++		vin2-supply = <&reg_vcc_4v>;
++		vin3-supply = <&reg_vcc_4v>;
++		vin4-supply = <&reg_vcc_4v>;
++		vin5-supply = <&reg_vcc_4v>;
++		vin6-supply = <&reg_vcc_4v>;
++		aldoin-supply = <&reg_vcc_4v>;
++		dldoin1-supply = <&buck5>;
++		dldoin2-supply = <&buck5>;
++
++		regulators {
++			buck1 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3450000>;
++				regulator-ramp-delay = <5000>;
++				regulator-always-on;
++			};
++
++			buck2 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3450000>;
++				regulator-ramp-delay = <5000>;
++				regulator-always-on;
++			};
++
++			buck3_1v8: buck3 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <1800000>;
++				regulator-ramp-delay = <5000>;
++				regulator-always-on;
++			};
++
++			buck4: buck4 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3300000>;
++				regulator-ramp-delay = <5000>;
++				regulator-always-on;
++			};
++
++			buck5: buck5 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3450000>;
++				regulator-ramp-delay = <5000>;
++				regulator-always-on;
++			};
++
++			buck6 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3450000>;
++				regulator-ramp-delay = <5000>;
++				regulator-always-on;
++			};
++
++			aldo1: aldo1 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3400000>;
++				regulator-boot-on;
++			};
++
++			aldo2 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3400000>;
++			};
++
++			aldo3 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3400000>;
++			};
++
++			aldo4 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3400000>;
++			};
++
++			dldo1 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3400000>;
++				regulator-boot-on;
++			};
++
++			dldo2 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3400000>;
++			};
++
++			dldo3 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3400000>;
++			};
++
++			dldo4 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3400000>;
++				regulator-always-on;
++			};
++
++			dldo5 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3400000>;
++			};
++
++			dldo6 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3400000>;
++				regulator-always-on;
++			};
++
++			dldo7 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3400000>;
++			};
++		};
++	};
++};
++
++&pcie1_phy {
++	pinctrl-names = "default";
++	pinctrl-0 = <&pcie1_3_cfg>;
++	status = "okay";
++};
++
++&pcie1_port {
++	phys = <&pcie1_phy>;
++	vpcie3v3-supply = <&pcie_vcc_3v3>;
++};
++
++&pcie1 {
++	vpcie3v3-supply = <&pcie_vcc_3v3>;
++	status = "okay";
++};
++
++&pcie2_phy {
++	pinctrl-names = "default";
++	pinctrl-0 = <&pcie2_4_cfg>;
++	status = "okay";
++};
++
++&pcie2_port {
++	phys = <&pcie2_phy>;
++	vpcie3v3-supply = <&pcie_vcc_3v3>;
++};
++
++&pcie2 {
++	vpcie3v3-supply = <&pcie_vcc_3v3>;
++	status = "okay";
++};
++
++&spi3 {
++	pinctrl-0 = <&ssp3_0_cfg>;
++	pinctrl-names = "default";
++	status = "okay";
++};
++
+ &uart0 {
+ 	pinctrl-names = "default";
+ 	pinctrl-0 = <&uart0_2_cfg>;
+ 	status = "okay";
+ };
++
++&usbphy2 {
++	status = "okay";
++};
++
++&usb_dwc3 {
++	dr_mode = "host";
++	#address-cells = <1>;
++	#size-cells = <0>;
++	status = "okay";
++
++	hub_2_0: hub@1 {
++		compatible = "usb2109,2817";
++		reg = <0x1>;
++		vdd-supply = <&usb3_hub_5v>;
++		peer-hub = <&hub_3_0>;
++		reset-gpios = <&gpio K1_GPIO(124) GPIO_ACTIVE_LOW>;
++	};
++
++	hub_3_0: hub@2 {
++		compatible = "usb2109,817";
++		reg = <0x2>;
++		vdd-supply = <&usb3_hub_5v>;
++		peer-hub = <&hub_2_0>;
++		reset-gpios = <&gpio K1_GPIO(124) GPIO_ACTIVE_LOW>;
++	};
++};
++
++&sdhci0 {
++	pinctrl-names = "default", "uhs";
++	pinctrl-0 = <&mmc1_cfg>;
++	pinctrl-1 = <&mmc1_uhs_cfg>;
++	bus-width = <4>;
++	cd-gpios = <&gpio K1_GPIO(80) (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
++	no-mmc;
++	no-sdio;
++	disable-wp;
++	cap-sd-highspeed;
++	vmmc-supply = <&buck4>;
++	vqmmc-supply = <&aldo1>;
++	sd-uhs-sdr25;
++	sd-uhs-sdr50;
++	sd-uhs-sdr104;
++	status = "okay";
++};
+--- a/arch/riscv/boot/dts/spacemit/k1-milkv-jupiter.dts	2026-07-03 08:45:39.451740479 -0400
++++ b/arch/riscv/boot/dts/spacemit/k1-milkv-jupiter.dts	2026-07-03 08:45:39.455740474 -0400
+@@ -14,14 +14,109 @@
+ 	aliases {
+ 		ethernet0 = &eth0;
+ 		ethernet1 = &eth1;
++		i2c2 = &i2c2;
++		i2c8 = &i2c8;
++		mmc0 = &emmc;
++		mmc1 = &sdhci0;
+ 		serial0 = &uart0;
+ 	};
+ 
+ 	chosen {
+-		stdout-path = "serial0";
++		stdout-path = "serial0:115200n8";
++	};
++
++	leds {
++		compatible = "gpio-leds";
++
++		led1 {
++			label = "pwr-led";
++			gpios = <&gpio K1_GPIO(96) GPIO_ACTIVE_HIGH>;
++			linux,default-trigger = "default-on";
++			default-state = "on";
++		};
++
++		led2 {
++			label = "hdd-led";
++			gpios = <&gpio K1_GPIO(92) GPIO_ACTIVE_HIGH>;
++			linux,default-trigger = "disk-activity";
++		};
++	};
++
++	pcie_vcc_3v3: regulator-pcie-vcc3v3 {
++		compatible = "regulator-fixed";
++		regulator-name = "pcie_vcc3v3";
++		regulator-min-microvolt = <3300000>;
++		regulator-max-microvolt = <3300000>;
++		regulator-boot-on;
++		regulator-always-on;
++		vin-supply = <&reg_dc_in>;
++	};
++
++	reg_dc_in: regulator-dc-in-12v {
++		compatible = "regulator-fixed";
++		regulator-name = "dc_in_12v";
++		regulator-min-microvolt = <12000000>;
++		regulator-max-microvolt = <12000000>;
++		regulator-boot-on;
++		regulator-always-on;
++	};
++
++	reg_vcc_4v: regulator-vcc-4v {
++		compatible = "regulator-fixed";
++		regulator-name = "vcc_4v";
++		regulator-min-microvolt = <4000000>;
++		regulator-max-microvolt = <4000000>;
++		regulator-boot-on;
++		regulator-always-on;
++		vin-supply = <&reg_dc_in>;
++	};
++
++	reg_vcc_5v: regulator-vcc-5v {
++		compatible = "regulator-fixed";
++		regulator-name = "vcc_5v";
++		regulator-min-microvolt = <5000000>;
++		regulator-max-microvolt = <5000000>;
++		regulator-boot-on;
++		regulator-always-on;
++		vin-supply = <&reg_dc_in>;
++	};
++
++	regulator-usb3-vbus-5v {
++		compatible = "regulator-fixed";
++		regulator-name = "USB30_VBUS";
++		regulator-min-microvolt = <5000000>;
++		regulator-max-microvolt = <5000000>;
++		regulator-always-on;
++		vin-supply = <&reg_vcc_5v>;
++		gpio = <&gpio K1_GPIO(97) GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++	};
++
++	usb3_hub_5v: regulator-usb3-hub-5v {
++		compatible = "regulator-fixed";
++		regulator-name = "USB30_HUB";
++		regulator-min-microvolt = <5000000>;
++		regulator-max-microvolt = <5000000>;
++		vin-supply = <&reg_vcc_5v>;
++		gpio = <&gpio K1_GPIO(123) GPIO_ACTIVE_HIGH>;
++		enable-active-high;
+ 	};
+ };
+ 
++&combo_phy {
++	status = "okay";
++};
++
++&emmc {
++	bus-width = <8>;
++	mmc-hs400-1_8v;
++	mmc-hs400-enhanced-strobe;
++	non-removable;
++	no-sd;
++	no-sdio;
++	status = "okay";
++};
++
+ &eth0 {
+ 	phy-handle = <&rgmii0>;
+ 	phy-mode = "rgmii-id";
+@@ -72,8 +167,272 @@
+ 	status = "okay";
+ };
+ 
++&i2c2 {
++	pinctrl-0 = <&i2c2_0_cfg>;
++	pinctrl-names = "default";
++	status = "okay";
++
++	eeprom@50 {
++		compatible = "atmel,24c04";
++		reg = <0x50>;
++		vcc-supply = <&buck3_1v8>; /* EEPROM_VCC18 */
++		pagesize = <16>;
++		read-only;
++		size = <512>;
++
++		nvmem-layout {
++			compatible = "onie,tlv-layout";
++
++			product-name {
++			};
++		};
++	};
++};
++
++&i2c8 {
++	pinctrl-0 = <&i2c8_cfg>;
++	pinctrl-names = "default";
++	status = "okay";
++
++	pmic@41 {
++		compatible = "spacemit,p1";
++		reg = <0x41>;
++		interrupts = <64>;
++		vin1-supply = <&reg_vcc_4v>;
++		vin2-supply = <&reg_vcc_4v>;
++		vin3-supply = <&reg_vcc_4v>;
++		vin4-supply = <&reg_vcc_4v>;
++		vin5-supply = <&reg_vcc_4v>;
++		vin6-supply = <&reg_vcc_4v>;
++		aldoin-supply = <&reg_vcc_4v>;
++		dldoin1-supply = <&buck5>;
++		dldoin2-supply = <&buck5>;
++
++		regulators {
++			buck1 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3450000>;
++				regulator-ramp-delay = <5000>;
++				regulator-always-on;
++			};
++
++			buck2 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3450000>;
++				regulator-ramp-delay = <5000>;
++				regulator-always-on;
++			};
++
++			buck3_1v8: buck3 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <1800000>;
++				regulator-ramp-delay = <5000>;
++				regulator-always-on;
++			};
++
++			buck4_3v3: buck4 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3300000>;
++				regulator-ramp-delay = <5000>;
++				regulator-always-on;
++			};
++
++			buck5: buck5 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3450000>;
++				regulator-ramp-delay = <5000>;
++				regulator-always-on;
++			};
++
++			buck6 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3450000>;
++				regulator-ramp-delay = <5000>;
++				regulator-always-on;
++			};
++
++			aldo1: aldo1 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3400000>;
++				regulator-boot-on;
++			};
++
++			aldo2 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3400000>;
++			};
++
++			aldo3 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3400000>;
++			};
++
++			aldo4 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3400000>;
++			};
++
++			dldo1 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3400000>;
++				regulator-boot-on;
++			};
++
++			dldo2 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3400000>;
++			};
++
++			dldo3 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3400000>;
++			};
++
++			dldo4 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3400000>;
++				regulator-always-on;
++			};
++
++			dldo5 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3400000>;
++			};
++
++			dldo6 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3400000>;
++				regulator-always-on;
++			};
++
++			dldo7 {
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3400000>;
++			};
++		};
++	};
++};
++
++&pcie1_phy {
++	pinctrl-names = "default";
++	pinctrl-0 = <&pcie1_3_cfg>;
++	status = "okay";
++};
++
++&pcie1_port {
++	phys = <&pcie1_phy>;
++	vpcie3v3-supply = <&pcie_vcc_3v3>;
++};
++
++&pcie1 {
++	vpcie3v3-supply = <&pcie_vcc_3v3>;
++	status = "okay";
++};
++
++&pcie2_phy {
++	pinctrl-names = "default";
++	pinctrl-0 = <&pcie2_4_cfg>;
++	status = "okay";
++};
++
++&pcie2_port {
++	phys = <&pcie2_phy>;
++	vpcie3v3-supply = <&pcie_vcc_3v3>;
++};
++
++&pcie2 {
++	vpcie3v3-supply = <&pcie_vcc_3v3>;
++	status = "okay";
++};
++
++&qspi {
++	pinctrl-names = "default";
++	pinctrl-0 = <&qspi_cfg>;
++	status = "okay";
++
++	flash@0 {
++		compatible = "jedec,spi-nor";
++		reg = <0>;
++		spi-max-frequency = <26500000>;
++		spi-rx-bus-width = <4>;
++		spi-tx-bus-width = <4>;
++		vcc-supply = <&buck4_3v3>; /* QSPI_VCC1833 */
++		m25p,fast-read;
++
++		partitions {
++			compatible = "fixed-partitions";
++			#address-cells = <1>;
++			#size-cells = <1>;
++
++			bootinfo@0 {
++				reg = <0x0 0x10000>;
++			};
++			private@10000 {
++				reg = <0x10000 0x10000>;
++			};
++			fsbl@20000 {
++				reg = <0x20000 0x40000>;
++			};
++			env@60000 {
++				reg = <0x60000 0x10000>;
++			};
++			opensbi@70000 {
++				reg = <0x70000 0x30000>;
++			};
++			uboot@a0000 {
++				reg = <0xa0000 0x760000>;
++			};
++		};
++	};
++};
++
++&sdhci0 {
++	pinctrl-names = "default", "uhs";
++	pinctrl-0 = <&mmc1_cfg>;
++	pinctrl-1 = <&mmc1_uhs_cfg>;
++	bus-width = <4>;
++	cd-gpios = <&gpio K1_GPIO(80) (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
++	no-mmc;
++	no-sdio;
++	disable-wp;
++	cap-sd-highspeed;
++	vmmc-supply = <&buck4_3v3>;
++	vqmmc-supply = <&aldo1>;
++	sd-uhs-sdr25;
++	sd-uhs-sdr50;
++	sd-uhs-sdr104;
++	status = "okay";
++};
++
+ &uart0 {
+ 	pinctrl-names = "default";
+ 	pinctrl-0 = <&uart0_2_cfg>;
+ 	status = "okay";
+ };
++
++&usbphy2 {
++	status = "okay";
++};
++
++&usb_dwc3 {
++	dr_mode = "host";
++	#address-cells = <1>;
++	#size-cells = <0>;
++	status = "okay";
++
++	hub_2_0: hub@1 {
++		compatible = "usb2109,2817";
++		reg = <0x1>;
++		vdd-supply = <&usb3_hub_5v>;
++		peer-hub = <&hub_3_0>;
++		reset-gpios = <&gpio K1_GPIO(124) GPIO_ACTIVE_LOW>;
++	};
++
++	hub_3_0: hub@2 {
++		compatible = "usb2109,817";
++		reg = <0x2>;
++		vdd-supply = <&usb3_hub_5v>;
++		peer-hub = <&hub_2_0>;
++		reset-gpios = <&gpio K1_GPIO(124) GPIO_ACTIVE_LOW>;
++	};
++};

@@ -1,5 +1,32 @@
 # STATUS — OpenWrt on Orange Pi RV2 (newest at top)
 
+## 2026-07-03 — GATE 1 APPROVED; target/linux/spacemit scaffolded (config-clean, DTS validated)
+Coordinator approved the 6.18 + carry-master-DTS plan. Built the target skeleton (in the WSL
+buildroot at /root/openwrt and mirrored into this repo under `target/linux/spacemit/`):
+- **Target Makefile**: BOARD=spacemit, ARCH=riscv64, KERNEL_PATCHVER=6.18, SUBTARGETS=generic,
+  FEATURES=ext4 squashfs fpu. `generic/target.mk` subtarget.
+- **config-6.18** (446 lines): derived from the proven d1 riscv64 6.18 config minus all
+  Allwinner/sunxi symbols, plus the K1 stack built-in (=y): ARCH_SPACEMIT, SPACEMIT_CCU,
+  RESET_SPACEMIT, PINCTRL_SPACEMIT_K1, GPIO_SPACEMIT_K1, MMC_SDHCI_OF_K1, NET_VENDOR_SPACEMIT +
+  SPACEMIT_K1_EMAC, MOTORCOMM_PHY (RV2's RGMII PHY), I2C_K1, MFD_SPACEMIT_P1, REGULATOR_SPACEMIT_P1,
+  8250 console. Drivers built INTO the kernel (no kmod pkgs exist upstream yet).
+- **DTS patch** `patches-6.18/0001-...backport-k1-board-enablement...patch`: replaces the minimal
+  6.18 K1 DTS (RV2 = UART+LED only) with the mainline-MASTER trio VERBATIM (k1.dtsi 870->1345,
+  k1-pinctrl.dtsi 79->633, k1-orangepi-rv2.dts 40->386; + bananapi-f3/milkv-jupiter kept
+  consistent). This wires dual-GbE EMAC + microSD root + USB/PCIe/PMIC. DELTA VALIDATED: the
+  clock/reset dt-bindings header is byte-identical 6.18 vs master (366 defines); all 3 K1 boards
+  compile clean (cpp->dtc exit 0, zero warnings, 32 KB DTB) against 6.18 headers. Full delta
+  documented in the patch header per coordinator instruction. Flagged upstreamable (NOT submitted).
+- **Image recipe** (`image/Makefile` + `boot.scr.txt` + `gen_spacemit_sdcard_img.sh` + `Config.in`):
+  `orangepi-rv2` device profile (DEVICE_DTS=spacemit/k1-orangepi-rv2). 2-partition MBR SD image
+  (FAT boot p1 + rootfs p2), boot.scr MIRRORS the vendor ky flow exactly (booti Image+dtb,
+  console=ttyS0,115200, root=PARTUUID resolved dynamically from p2, rootwait). No embedded U-Boot
+  (bootloader is in SPI-NOR). SD_BOOT_PARTSIZE default 64 MB.
+- **base-files**: `02_network` sets eth0=LAN / eth1=WAN (NOTE: flippable — swap in board.d if
+  wiring differs); inittab console on ttyS0.
+- **`make defconfig` CLEAN**: target auto-discovered, profile selected, riscv64_generic arch,
+  both partsize knobs honored. Next: full kernel/image build.
+
 ## 2026-07-03 — GATE 1: kernel-version research complete (see docs/gate1-kernel-research.md)
 - **OpenWrt `main` already pins Linux 6.18.37** (not 6.12). d1/sifiveu/starfive RISC-V targets all
   run `KERNEL_PATCHVER:=6.18`. So OpenWrt's kernel == the kernel we need.

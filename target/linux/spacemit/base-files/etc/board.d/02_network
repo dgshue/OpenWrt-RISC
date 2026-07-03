@@ -1,0 +1,25 @@
+#!/bin/sh
+#
+# Copyright (C) 2026 dgshue
+#
+# Orange Pi RV2 has two SpacemiT K1 EMAC gigabit ports.
+# Default mapping (flippable): eth0 = LAN, eth1 = WAN.
+#
+
+. /lib/functions/uci-defaults.sh
+
+board_config_update
+
+case "$(board_name)" in
+xunlong,orangepi-rv2)
+	ucidef_set_interface_lan "eth0"
+	ucidef_set_interface_wan "eth1"
+	;;
+*)
+	ucidef_set_interface_lan "eth0"
+	;;
+esac
+
+board_config_flush
+
+exit 0
