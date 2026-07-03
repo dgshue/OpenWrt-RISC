@@ -1,26 +1,2 @@
-# Claude Code
+
 .claude/
-
-# Downloaded / vendor images (large binaries — keep out of git)
-*.img
-*.img.gz
-*.img.xz
-*.7z
-*.wic
-*.itb
-downloads/
-vendor-images/
-
-# OpenWrt build tree (huge; cloned/built separately, not committed)
-openwrt/
-staging_dir/
-build_dir/
-bin/
-dl/
-*.o
-*.ko
-
-# Extraction / scratch
-extract/
-scratch/
-*.tmp
