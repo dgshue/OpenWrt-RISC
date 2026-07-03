@@ -88,6 +88,22 @@ echo 'CONFIG_PACKAGE_luci-theme-openwrt-2020=y'  >> .config
 make defconfig && make -j"$(nproc)"
 ```
 
+### Full router build (VPN, adblock/DNS, IPv6, SMB, …) (optional)
+
+For a complete router/firewall image — WireGuard + OpenVPN, `dnsmasq-full` + adblock +
+`https-dns-proxy`, full IPv6, SQM, DDNS, ACME, monitoring, SMB, and diagnostics — append the package
+profile and rebuild:
+
+```sh
+cat /tmp/rv2/config/rv2-router.config >> .config   # from this repo
+./scripts/feeds install -a
+make defconfig && make -j"$(nproc)"
+```
+
+See **[docs/router-build.md](docs/router-build.md)** for the full package list, the
+**VPN-is-an-interface-protocol** gotcha (LuCI has no standalone VPN app pages anymore), and the
+**force-DNS / sinkhole recipe** that closes the "my DNS filter misses half the queries" gap.
+
 ---
 
 ## Flash & first boot

@@ -1,5 +1,24 @@
 # STATUS — OpenWrt on Orange Pi RV2 (newest at top)
 
+## 2026-07-03 — Full "router" image: VPN + DNS-sink tooling + IPv6 + SMB + diagnostics
+Built and flashed a complete router feature set (279 packages, ~18 MB squashfs, rootfs 13 MB) and
+documented it as a reproducible profile.
+- **Added:** WireGuard (`kmod-wireguard`/`wireguard-tools`/`luci-proto-wireguard`) + OpenVPN
+  (`openvpn-openssl`/`openvpn-easy-rsa`/`luci-proto-openvpn`); `dnsmasq-full` (swapped for base
+  dnsmasq) + `adblock` + `https-dns-proxy` + `bind-dig`; full IPv6 (`luci-proto-ipv6`, 6in4/6rd/
+  ds-lite); SQM, DDNS, ACME, statistics/collectd, nlbwmon, irqbalance, upnp, ttyd; SMB
+  (`ksmbd-server`); USB/ext4/f2fs/exfat storage; diagnostics (htop/tcpdump/ethtool/iperf3/…). Themes
+  material + openwrt-2020 baked in.
+- **Gotcha documented:** current LuCI has **no standalone VPN app pages** — WireGuard/OpenVPN are
+  configured as **interface protocols** (Network → Interfaces → Protocol), via `luci-proto-*`. The
+  old `luci-app-openvpn`/`luci-app-wireguard` were removed from the feed (defconfig silently dropped
+  them); `luci-proto-openvpn` added in their place.
+- **Profile + docs:** `config/rv2-router.config` (append + `make defconfig` to reproduce) and
+  `docs/router-build.md` (package list, VPN-protocol note, and the **force-DNS/sinkhole recipe** that
+  explains why AdGuard was missing queries — hardcoded DNS, DoH/DoT, and especially IPv6 RA DNS).
+- Image ships with packages present but **no forced DNS/VPN config** (operator configures in LuCI).
+- `mtr` didn't pull cleanly from the feed on riscv64 → omitted (busybox `traceroute` instead).
+
 ## 2026-07-03 — *** BOOTS ON HARDWARE *** + LuCI web UI; SD root fixed; repo published
 First full boot to userspace on the real board, and the port is now published for contributors.
 - **On-board boot confirmed** (serial COM9): kernel 6.18.37, 8 CPUs, CCU clock driver, **dual-GbE
