@@ -1,5 +1,23 @@
 # STATUS — OpenWrt on Orange Pi RV2 (newest at top)
 
+## 2026-07-03 — Resolved ALL new kernel symbols in one pass (incl. the missing CLOCK driver!)
+The RTC fix alone was insufficient: syncconfig stops at the FIRST unresolved symbol, so the next
+build tripped on `MMP_PDMA (NEW)`. Fixed it properly this time — enumerated the COMPLETE unresolved
+set by reconstructing the build's own .config (cat generic + target fragments) and running the
+kernel's `listnewconfig`. That surfaced 4 symbols the fragments never recorded:
+- **`CONFIG_SPACEMIT_K1_CCU=y` — CRITICAL CATCH.** `SPACEMIT_CCU` (which we had) is only the umbrella
+  menu; the ACTUAL K1 clock-controller driver is the nested `SPACEMIT_K1_CCU`. Without it there is
+  NO clock driver -> the board would not boot. Now enabled.
+- `CONFIG_MMP_PDMA=y` — DMA engine (`spacemit,k1-pdma`), the RV2 DTS enables the &pdma node.
+- `CONFIG_PWM_PXA=y` — PWM (`spacemit,k1-pwm`/`marvell,pxa910-pwm`), DTS has pwm nodes.
+- `CONFIG_FRAME_WARN=2048` — default frame-size warning threshold.
+All 4 added explicitly to config-6.18 (451 lines). **Definitive verification:** reconstructing the
+build's .config from the generic+target fragments and running `listnewconfig` now returns ZERO new
+symbols -> syncconfig will not prompt again (no more whack-a-mole). Root cause of the recurrence:
+OpenWrt's `target/linux/refresh` omits symbols at their kconfig default, but the build's syncconfig
+still treats never-recorded symbols as NEW; the fix is to record them explicitly.
+config-6.18 synced to openclaw + repo (identical MD5). Committed. Relaunching the build.
+
 ## 2026-07-03 — Kernel phase reached; DTS patch applied CLEAN; fixed a config-completeness gap
 Build on openclaw cleared toolchain + reached the KERNEL phase. **Our DTS patch applied cleanly**
 (build-openclaw-01.log:97323) and the 6.18.37 kernel prepared — the target scaffold is sound.
