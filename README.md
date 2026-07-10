@@ -163,7 +163,8 @@ target/linux/spacemit/
 ## Contributing
 
 PRs to **this repo** are welcome — additional hardware bring-up (USB, PCIe, UHS SD), config
-cleanups, docs, and testing on real boards. Useful conventions:
+cleanups, docs, and testing on real boards. See **[CONTRIBUTING.md](CONTRIBUTING.md)** for the
+full build/PR flow and how to report hardware-test results. Useful conventions:
 
 - Keep the target buildable against OpenWrt `main` and match OpenWrt's style for target files.
 - Kernel patches under `patches-6.18/` should be minimal and, where possible, **backports of merged
@@ -183,5 +184,6 @@ Maintainer: **Daniel Shue** (`dgshue`). Upstream K1 enablement is the work of th
 engineers and the mainline RISC-V community (device tree by Yangyu Chen & Hendrik Hamerlinck; the
 `sdhci-of-k1` clock fix by Iker Pedrosa / Yixun Lan).
 
-Target files and patches are licensed **GPL-2.0**, matching OpenWrt and the Linux kernel they derive
-from. Backported patches retain their upstream authorship and license.
+Target files and patches are licensed **GPL-2.0-only** (see [LICENSE](LICENSE)), matching OpenWrt
+and the Linux kernel they derive from. Backported patches retain their upstream authorship and
+license.
