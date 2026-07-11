@@ -17,6 +17,7 @@ done
 uci set network.stabridge=interface
 uci set network.stabridge.proto=relay
 uci set network.stabridge.ipaddr=192.168.1.250
+uci set network.stabridge.expiry='600'
 uci -q delete network.stabridge.network
 uci add_list network.stabridge.network=lan
 uci add_list network.stabridge.network=wwan

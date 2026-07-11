@@ -1,0 +1,4 @@
+# brcmfmac firmware ARP offload eats ARP frames relayd must answer;
+# promiscuous mode disables the firmware filtering. Required for the
+# relayd wireless bridge to be loss-free.
+[ "$ACTION" = "ifup" ] && [ "$INTERFACE" = "wwan" ] && ip link set "$DEVICE" promisc on

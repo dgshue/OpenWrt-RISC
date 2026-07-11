@@ -150,6 +150,30 @@ reachable at **192.168.1.250** from both the wired and the wireless side. The
 packages (`relayd`, `luci-proto-relay`) are selected in
 `config/rv2-router.config`.
 
+### Bridge stability
+
+Two fixes found during hardware soak took the bridge from bursty to loss-free:
+
+**relayd host-table expiry 30 → 600 s.** relayd's default host expiry is 30 s.
+With it, the bridge cycled **~10 s clean, then ~5–10 s unreachable** as proxy-ARP
+entries aged out; recovery pings came back with **300–2600 ms RTT** — the cost of
+re-resolving ARP each time an entry expired. Setting
+`uci set network.stabridge.expiry='600'` in
+[`99-rv2-zz-bridge`](../target/linux/spacemit/base-files/etc/uci-defaults/99-rv2-zz-bridge)
+holds the proxied host entries long enough to stop the churn.
+
+**brcmfmac ARP offload — the big one — worked around with promiscuous mode.** Even
+with the expiry fix, Windows clients still marked the route dead in periodic
+bursts. Root cause: the **brcmfmac firmware ARP offload absorbs ARP frames**
+addressed to the hosts relayd proxies, so relayd **never sees the neighbours' ARP
+revalidation probes** and can't answer them — the peers time the entry out and
+declare the route dead. The **diagnostic tell is a Heisenbug**: packet loss
+*vanishes the moment* `tcpdump` runs on the STA interface, because tcpdump puts
+the NIC into promiscuous mode — which disables the firmware's ARP filtering. The
+persistent fix sets promiscuous mode on the `wwan` device at every `ifup` via
+[`99-wwan-promisc`](../target/linux/spacemit/base-files/etc/hotplug.d/iface/99-wwan-promisc),
+disabling the firmware filtering and taking the bridge to **0 % loss**.
+
 ## Credit
 
 The root causes — module **VBAT via EXT_PWR_EN / GPIO 116**, the **PMIC 32KOUT

@@ -1,5 +1,16 @@
 # STATUS — OpenWrt on Orange Pi RV2 (newest at top)
 
+## 2026-07-10 — Bridge stabilized: relayd expiry + brcmfmac ARP-offload/promisc fix — 0% loss soak
+Two hardware-soak fixes take the relayd wireless bridge from bursty to **0% packet loss**:
+- **relayd host expiry 30 → 600 s.** The default 30 s proxy-ARP expiry made the bridge cycle ~10 s
+  clean / ~5–10 s unreachable, with recovery pings at 300–2600 ms RTT (ARP re-resolution). Set
+  `network.stabridge.expiry='600'` in `99-rv2-zz-bridge`.
+- **brcmfmac ARP offload — the big one.** The firmware ARP offload absorbs ARP frames addressed to the
+  proxied hosts, so relayd never sees the neighbours' ARP revalidation probes and Windows clients mark
+  the route dead in bursts. **Tell:** loss vanishes while `tcpdump` runs (tcpdump enables promisc — a
+  Heisenbug). Fixed persistently by setting promiscuous mode on the `wwan` STA device at `ifup` via the
+  new `99-wwan-promisc` hotplug script, which disables the firmware filtering.
+
 ## 2026-07-10 — *** WIRELESS BRIDGE WORKING *** relayd wired-LAN over WiFi uplink
 The board is validated as a **WiFi bridge**: the onboard AP6256 joins the home AP as a STA (`wwan`),
 `relayd` pseudo-bridges the wired LAN to that uplink, and **wired clients lease DHCP from the main
