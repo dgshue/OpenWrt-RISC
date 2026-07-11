@@ -1,0 +1,38 @@
+#!/bin/sh
+# Wireless bridge: relayd pseudo-bridge between the wired LAN and the WiFi
+# uplink (wwan). Wired clients get DHCP from the main router through the
+# WiFi. LAN must have NO gateway (wwan owns the default route).
+uci -q delete network.lan.gateway
+uci -q delete network.wan
+uci -q delete network.wan6
+i=0
+while d=$(uci -q get network.@device[$i].name); do
+	if [ "$d" = "br-lan" ]; then
+		uci -q del_list network.@device[$i].ports="eth1"
+		uci add_list network.@device[$i].ports="eth1"
+		break
+	fi
+	i=$((i + 1))
+done
+uci set network.stabridge=interface
+uci set network.stabridge.proto=relay
+uci set network.stabridge.ipaddr=192.168.1.250
+uci -q delete network.stabridge.network
+uci add_list network.stabridge.network=lan
+uci add_list network.stabridge.network=wwan
+uci commit network
+i=0
+while n=$(uci -q get firewall.@zone[$i].name); do
+	if [ "$n" = "lan" ]; then
+		uci -q del_list firewall.@zone[$i].network="wwan"
+		uci add_list firewall.@zone[$i].network="wwan"
+	fi
+	if [ "$n" = "wan" ]; then
+		uci -q del_list firewall.@zone[$i].network="wwan"
+		uci -q del_list firewall.@zone[$i].network="wan"
+		uci -q del_list firewall.@zone[$i].network="wan6"
+	fi
+	i=$((i + 1))
+done
+uci commit firewall
+exit 0
