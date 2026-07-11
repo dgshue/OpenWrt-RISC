@@ -108,6 +108,48 @@ that retries each boot until the radio exists.
 > L2 bridge port; use **relayd** (or route) if you need the wireless uplink to
 > serve a wired LAN.
 
+## Wireless bridge (relayd)
+
+The board is validated end-to-end as a **WiFi bridge**: the onboard AP6256 joins
+the home AP as a STA (`wwan`), and the two wired GbE ports serve LAN clients that
+get DHCP straight from the main router **through** the WiFi uplink.
+
+**Why relayd.** brcmfmac exposes no 4-address/WDS mode, so a true L2 bridge
+(`wwan` as a `br-lan` port) is impossible — the AP would only ever see the STA's
+own MAC. **relayd** is the standard OpenWrt answer: a proxy-ARP "pseudo-bridge"
+that relays between the wired segment and the WiFi segment at L3, so wired
+clients appear on the upstream subnet and lease from the main router.
+
+**Topology.**
+
+```
+wired client ── eth0/eth1 ── br-lan ── relayd (stabridge) ── wwan (STA) ── home AP ── main router (DHCP)
+```
+
+Both GbE ports (`eth0` + `eth1`) sit in `br-lan`; a `relay`-proto interface
+(`stabridge`) bridges `lan` ↔ `wwan`, both sides sharing the board address
+`192.168.1.250` so it is reachable from the wired **and** wireless sides.
+
+**The critical routing gotcha — the LAN interface must have NO static gateway.**
+With a gateway configured on `lan`, that route lands at **metric 0** via the
+(usually **unplugged**) wire and **blackholes all traffic** — even though the
+WiFi is fully associated. The trap: `udhcpc` on `wwan` keeps *renewing its lease
+fine* (it binds to the interface directly), so the radio looks healthy while
+every ping fails. **DHCP-renew-succeeds-while-ping-fails is the tell** that this
+is a routing blackhole, not a radio problem. Dropping `network.lan.gateway` (so
+`wwan` owns the default route) fixes it — this is why
+[`99-rv2-lan`](../target/linux/spacemit/base-files/etc/uci-defaults/99-rv2-lan)
+no longer sets a gateway.
+
+**First-boot config.**
+[`99-rv2-zz-bridge`](../target/linux/spacemit/base-files/etc/uci-defaults/99-rv2-zz-bridge)
+applies the whole bridge on first boot: adds `eth1` to `br-lan`, creates the
+`stabridge` relay interface over `lan`+`wwan`, drops the stale `wan`/`wan6`
+interfaces, and moves `wwan` into the `lan` firewall zone. The board comes up
+reachable at **192.168.1.250** from both the wired and the wireless side. The
+packages (`relayd`, `luci-proto-relay`) are selected in
+`config/rv2-router.config`.
+
 ## Credit
 
 The root causes — module **VBAT via EXT_PWR_EN / GPIO 116**, the **PMIC 32KOUT

@@ -45,6 +45,9 @@ LuCI web UI.
 - **Wi-Fi is validated in STA (client) mode** — see [patches 0004–0006](#patches) and the
   [AP6256 bring-up writeup](docs/wifi-ap6256.md). `brcmfmac` has **no 4-address (WDS) mode**, so the
   radio can't be a transparent L2 bridge port; L2-bridging a wireless uplink needs `relayd`.
+  **Wireless-bridge mode is implemented and hardware-validated** via `relayd` — both GbE ports are
+  bridged and wired clients lease from the upstream router over the WiFi uplink; see
+  [Wireless bridge (relayd)](docs/wifi-ap6256.md#wireless-bridge-relayd).
 - `reboot` behaviour on this board is quirky (OpenSBI SRST is a no-op on the vendor firmware) — a
   power cycle is the reliable reset.
 

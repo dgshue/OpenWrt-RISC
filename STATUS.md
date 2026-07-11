@@ -1,5 +1,32 @@
 # STATUS — OpenWrt on Orange Pi RV2 (newest at top)
 
+## 2026-07-10 — *** WIRELESS BRIDGE WORKING *** relayd wired-LAN over WiFi uplink
+The board is validated as a **WiFi bridge**: the onboard AP6256 joins the home AP as a STA (`wwan`),
+`relayd` pseudo-bridges the wired LAN to that uplink, and **wired clients lease DHCP from the main
+router through the WiFi**. Confirmed on hardware end-to-end — a wired client got a lease and
+connectivity through the bridge. Full writeup: `docs/wifi-ap6256.md` (Wireless bridge section).
+- **Packages baked in:** `relayd` + `luci-proto-relay` added to `config/rv2-router.config`. relayd's
+  source comes from `git.openwrt.org` (no mirror tarball) — if downloads fail, clone
+  `github.com/openwrt/relayd` at the pinned commit and pack `dl/relayd-<ver>.tar.zst` by hand
+  (`PKG_MIRROR_HASH:=skip`).
+- **Topology:** wired client → `eth0`/`eth1` → `br-lan` → `relayd` (`stabridge`) → `wwan` STA → home
+  AP → main router. **Both GbE ports** sit in `br-lan`; a `relay`-proto interface bridges `lan`↔`wwan`,
+  both sides on `192.168.1.250` so the board is reachable from wired *and* wireless. Why relayd:
+  `brcmfmac` has no 4-addr/WDS, so a true L2 bridge is impossible — proxy-ARP is the standard approach.
+- **Root cause of the "dead radio" red herring — a routing blackhole, not the radio.** With a static
+  gateway on the `lan` interface, that metric-0 route via the **unplugged** wire blackholes all
+  traffic even though the WiFi is fully associated. `udhcpc` on `wwan` kept *renewing its lease fine*
+  (it binds to the interface directly), so the radio looked healthy while every ping failed —
+  **DHCP-renew-succeeds-while-ping-fails was the tell**. Fix: drop `network.lan.gateway` (so `wwan`
+  owns the default route); `99-rv2-lan` no longer sets one. Diagnosed only after the radio was
+  wrongly suspected.
+- **First-boot config:** `99-rv2-zz-bridge` applies the bridge on first boot — adds `eth1` to
+  `br-lan`, creates the `stabridge` relay interface, drops the stale `wan`/`wan6`, moves `wwan` into
+  the `lan` firewall zone.
+- **Lesson — marginal SD card:** live `apk` installs kept wedging the overlay, which masqueraded as
+  further breakage; **baking the packages and configs into the image** (rather than installing on the
+  running board) was what made the milestone reproducible.
+
 ## 2026-07-10 — *** ONBOARD WIFI WORKING *** AP6256 SDIO bring-up (Linux)
 The board's **Ampak AP6256 (Broadcom BCM43456C5)** Wi-Fi module is up under our mainline-6.18 port —
 a **WPA2 STA join on 5 GHz at 433.3 Mbit/s (VHT80, −41 dBm) with a DHCP lease**. Mainline had no DTS
