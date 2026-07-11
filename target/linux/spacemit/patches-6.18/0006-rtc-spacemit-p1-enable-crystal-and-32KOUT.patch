@@ -1,0 +1,52 @@
+rtc: spacemit-p1: enable the 32 kHz crystal, 32KOUT and RTC at probe
+
+The P1 (SPM8821) RTC_CTRL register powers on with crystal_en,
+out_32k_en and rtc_en all clear on the Orange Pi RV2: the RTC does not
+count (hctosys fails with the mainline driver, which only ever toggles
+RTC_EN) and, more importantly, the PMIC 32KOUT pin is dead. On this
+board 32KOUT is the ONLY 32.768 kHz source and feeds the AP6256 WiFi
+module LPO pin; without it the module PMU cannot bring up its SDIO
+backplane clocks (brcmfmac "clock enable timeout"). The vendor RTC
+driver unconditionally programs crystal_en|out_32k_en|rtc_en|
+rtc_clk_sel at probe; do the same.
+
+--- a/drivers/rtc/rtc-spacemit-p1.c	2026-07-11 00:09:49.448832213 +0000
++++ b/drivers/rtc/rtc-spacemit-p1.c	2026-07-11 00:10:39.648811058 +0000
+@@ -32,7 +32,10 @@
+ #define RTC_TIME		0x0d	/* Offset of the seconds register */
+ 
+ #define RTC_CTRL		0x1d
++#define CRYSTAL_EN	BIT(0)
++#define OUT_32K_EN	BIT(1)
+ #define RTC_EN		BIT(2)
++#define RTC_CLK_SEL	BIT(3)
+ 
+ /* Number of attempts to read a consistent time stamp before giving up */
+ #define RTC_READ_TRIES		20	/* At least 1 */
+@@ -127,6 +130,7 @@
+ 	struct device *dev = &pdev->dev;
+ 	struct rtc_device *rtc;
+ 	struct p1_rtc *p1;
++	int ret;
+ 
+ 	p1 = devm_kzalloc(dev, sizeof(*p1), GFP_KERNEL);
+ 	if (!p1)
+@@ -137,6 +141,18 @@
+ 	if (!p1->regmap)
+ 		return dev_err_probe(dev, -ENODEV, "failed to get regmap\n");
+ 
++	/*
++	 * Enable the 32.768 kHz crystal, the 32KOUT pin and the RTC counter
++	 * (the vendor RTC driver programs the same set).  32KOUT matters
++	 * beyond the RTC: on boards like the Orange Pi RV2 it is the LPO
++	 * sleep clock of the AP6256 (BCM43456) WiFi module, whose PMU cannot
++	 * bring up the SDIO backplane clocks without it.
++	 */
++	ret = regmap_set_bits(p1->regmap, RTC_CTRL,
++			      CRYSTAL_EN | OUT_32K_EN | RTC_EN | RTC_CLK_SEL);
++	if (ret)
++		return dev_err_probe(dev, ret, "failed to enable RTC clocks\n");
++
+ 	rtc = devm_rtc_allocate_device(dev);
+ 	if (IS_ERR(rtc))
+ 		return dev_err_probe(dev, PTR_ERR(rtc),

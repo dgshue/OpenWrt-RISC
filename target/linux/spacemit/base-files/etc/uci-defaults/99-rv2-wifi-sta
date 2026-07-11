@@ -1,0 +1,40 @@
+#!/bin/sh
+# Join the home WiFi as a station; uplink exposed as "wwan" (dhcp).
+# If the radio has not probed yet, exit 1 so uci-defaults retries next boot.
+n=0
+while [ ! -d /sys/class/ieee80211/phy0 ] && [ $n -lt 30 ]; do
+	sleep 1
+	n=$((n + 1))
+done
+[ -d /sys/class/ieee80211/phy0 ] || exit 1
+/sbin/wifi config
+uci -q get wireless.radio0 >/dev/null || exit 1
+uci -q batch <<UCI
+set wireless.radio0.disabled=0
+set wireless.radio0.band=5g
+set wireless.radio0.channel=auto
+set wireless.radio0.country=US
+delete wireless.default_radio0
+set wireless.wwan_sta=wifi-iface
+set wireless.wwan_sta.device=radio0
+set wireless.wwan_sta.mode=sta
+set wireless.wwan_sta.network=wwan
+set wireless.wwan_sta.ssid=YOUR-SSID
+set wireless.wwan_sta.encryption=psk2
+set wireless.wwan_sta.key=CHANGE-ME
+set network.wwan=interface
+set network.wwan.proto=dhcp
+set network.wwan.metric=20
+UCI
+uci commit wireless
+uci commit network
+i=0
+while name=$(uci -q get firewall.@zone[$i].name); do
+	if [ "$name" = "wan" ]; then
+		uci add_list firewall.@zone[$i].network=wwan
+		uci commit firewall
+		break
+	fi
+	i=$((i + 1))
+done
+exit 0

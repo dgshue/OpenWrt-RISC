@@ -1,0 +1,37 @@
+mmc: sdhci-of-k1: fix fatal unaligned HOST_CONTROL2 access on SDIO slots
+
+spacemit_sdhci_set_uhs_signaling() ends with a 32-bit read-modify-write
+of SDHCI_HOST_CONTROL2 via spacemit_sdhci_setbits(). HOST_CONTROL2 is a
+16-bit register at offset 0x3E, so this issues a 4-byte MMIO load at a
+2-byte-aligned address. Misaligned accesses to device memory cannot be
+emulated on RISC-V: the load takes an access fault in interrupt context
+and the kernel panics.
+
+The line is guarded by !MMC_CAP2_NO_SDIO, and every upstream K1 board
+marks its SD and eMMC slots no-sdio, so the path was never executed
+until the Orange Pi RV2 AP6256 SDIO WiFi slot (patch 0004) -- which
+panics at mmc_power_up() during probe, 100% reproducible:
+
+  Oops - load access fault, epc spacemit_sdhci_set_uhs_signaling+0x3c
+  badaddr = ioaddr + 0x3e
+
+Use the 16-bit accessors, matching the register width (and the vendor
+driver, which does the same via sdhci_writew).
+
+--- a/drivers/mmc/host/sdhci-of-k1.c	2026-07-10 23:53:01.699256910 +0000
++++ b/drivers/mmc/host/sdhci-of-k1.c	2026-07-10 23:53:01.707256907 +0000
+@@ -125,8 +125,12 @@
+ 
+ 	sdhci_set_uhs_signaling(host, timing);
+ 
+-	if (!(host->mmc->caps2 & MMC_CAP2_NO_SDIO))
+-		spacemit_sdhci_setbits(host, SDHCI_CTRL_VDD_180, SDHCI_HOST_CONTROL2);
++	if (!(host->mmc->caps2 & MMC_CAP2_NO_SDIO)) {
++		u16 ctrl2 = sdhci_readw(host, SDHCI_HOST_CONTROL2);
++
++		ctrl2 |= SDHCI_CTRL_VDD_180;
++		sdhci_writew(host, ctrl2, SDHCI_HOST_CONTROL2);
++	}
+ }
+ 
+ static void spacemit_sdhci_set_clock(struct sdhci_host *host, unsigned int clock)

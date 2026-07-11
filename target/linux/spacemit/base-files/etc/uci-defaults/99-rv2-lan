@@ -1,7 +1,7 @@
 #!/bin/sh
 uci -q batch <<UCI
 set network.lan.proto=static
-set network.lan.ipaddr=192.168.1.35
+set network.lan.ipaddr=192.168.1.250
 set network.lan.netmask=255.255.255.0
 set network.lan.gateway=192.168.1.1
 delete network.lan.dns

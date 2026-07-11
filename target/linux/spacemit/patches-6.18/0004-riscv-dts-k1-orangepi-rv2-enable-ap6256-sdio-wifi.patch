@@ -1,0 +1,115 @@
+riscv: dts: spacemit: k1-orangepi-rv2: enable the AP6256 SDIO WiFi
+
+The RV2 carries an Ampak AP6256 (Broadcom BCM43456C5, WiFi 5 2.4/5 GHz)
+on the K1 third SDHCI instance (SDH1 @ 0xd4280800). Mainline has no node
+for it; parameters were reverse-engineered from the vendor tree and the
+board schematic, and validated on this exact board:
+
+- SDH1 host node: CLK_SDH1/RESET_SDH1 (+ shared AXI), IRQ 100.
+- mmc2 pin group GPIO_15..20 MODE1, ALL pads pulled up (incl. CLK -- the
+  vendor pulls CLK up on mmc2, unlike mmc1), 1.8 V DS2.
+- WL_REG_ON = GPIO 67 active-high via mmc-pwrseq-simple.
+- vmmc = the EXT_3V3 buck behind EXT_PWR_EN (GPIO 116) -- the SAME rail
+  mainline models as pcie_vcc3v3. Without it the module has no VBAT, no
+  REF_CLK, and is mute to every SDIO command (schematic: EXT_3V3 feeds
+  both WIFI_VCC33 and PCIE_VCC3V3). Referencing it as vmmc-supply makes
+  the MMC core enable it (gpio-ranges auto-mux pad 116) before power-up.
+- vqmmc = buck3 (fixed 1.8 V rail); 4-bit, non-removable, SDIO-only.
+
+The sdhci-of-k1 pad-clock fix (patch 0002) applies its SDIO clock
+override to this slot via MMC_CAP2_NO_MMC. Patch 0005 fixes the fatal
+unaligned HOST_CONTROL2 access this slot exposes. Firmware:
+brcmfmac43456-sdio.{bin,txt,clm_blob} + RV2 NVRAM in base-files. The
+32 kHz LPO the module needs for its backplane clocks is enabled by the
+PMIC RTC driver (patch 0006).
+
+--- a/arch/riscv/boot/dts/spacemit/k1.dtsi	2026-07-10 22:47:01.158925961 +0000
++++ b/arch/riscv/boot/dts/spacemit/k1.dtsi	2026-07-10 22:47:01.181925951 +0000
+@@ -1328,6 +1328,19 @@
+ 				status = "disabled";
+ 			};
+ 
++			sdhci1: mmc@d4280800 {
++				compatible = "spacemit,k1-sdhci";
++				reg = <0x0 0xd4280800 0x0 0x200>;
++				clocks = <&syscon_apmu CLK_SDH_AXI>,
++					 <&syscon_apmu CLK_SDH1>;
++				clock-names = "core", "io";
++				resets = <&syscon_apmu RESET_SDH_AXI>,
++					 <&syscon_apmu RESET_SDH1>;
++				reset-names = "axi", "sdh";
++				interrupts = <100>;
++				status = "disabled";
++			};
++
+ 			emmc: mmc@d4281000 {
+ 				compatible = "spacemit,k1-sdhci";
+ 				reg = <0x0 0xd4281000 0x0 0x200>;
+--- a/arch/riscv/boot/dts/spacemit/k1-pinctrl.dtsi	2026-07-10 22:47:01.162925959 +0000
++++ b/arch/riscv/boot/dts/spacemit/k1-pinctrl.dtsi	2026-07-10 22:47:01.182925951 +0000
+@@ -630,4 +630,24 @@
+ 			power-source = <1800>;
+ 		};
+ 	};
++
++	mmc2_cfg: mmc2-cfg {
++		mmc2-data-cmd-pins {
++			pinmux = <K1_PADCONF(15, 1)>,   /* mmc2_d3 */
++				 <K1_PADCONF(16, 1)>,   /* mmc2_d2 */
++				 <K1_PADCONF(17, 1)>,   /* mmc2_d1 */
++				 <K1_PADCONF(18, 1)>,   /* mmc2_d0 */
++				 <K1_PADCONF(19, 1)>;   /* mmc2_cmd */
++			bias-pull-up = <0>;
++			drive-strength = <32>;
++			power-source = <1800>;
++		};
++
++		mmc2-clk-pins {
++			pinmux = <K1_PADCONF(20, 1)>;   /* mmc2_clk */
++			bias-pull-up = <0>;
++			drive-strength = <32>;
++			power-source = <1800>;
++		};
++	};
+ };
+--- a/arch/riscv/boot/dts/spacemit/k1-orangepi-rv2.dts	2026-07-10 22:47:01.165925958 +0000
++++ b/arch/riscv/boot/dts/spacemit/k1-orangepi-rv2.dts	2026-07-11 00:11:13.046796981 +0000
+@@ -64,6 +64,13 @@
+ 		vin-supply = <&vcc_5v0>;
+ 	};
+ 
++	wifi_pwrseq: wifi-pwrseq {
++		compatible = "mmc-pwrseq-simple";
++		reset-gpios = <&gpio K1_GPIO(67) GPIO_ACTIVE_LOW>;
++		post-power-on-delay-ms = <200>;
++		power-off-delay-us = <10000>;
++	};
++
+ 	leds {
+ 		compatible = "gpio-leds";
+ 
+@@ -382,3 +389,24 @@
+ 	status = "okay";
+ 	no-1-8-v;
+ };
++
++&sdhci1 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&mmc2_cfg>;
++	bus-width = <4>;
++	non-removable;
++	no-mmc;
++	no-sd;
++	keep-power-in-suspend;
++	vmmc-supply = <&pcie_vcc3v3>;
++	vqmmc-supply = <&buck3_1v8>;
++	mmc-pwrseq = <&wifi_pwrseq>;
++	#address-cells = <1>;
++	#size-cells = <0>;
++	status = "okay";
++
++	brcmf: wifi@1 {
++		compatible = "brcm,bcm43456-fmac", "brcm,bcm4329-fmac";
++		reg = <1>;
++	};
++};
