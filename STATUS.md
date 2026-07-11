@@ -1,5 +1,36 @@
 # STATUS — OpenWrt on Orange Pi RV2 (newest at top)
 
+## 2026-07-10 — *** ONBOARD WIFI WORKING *** AP6256 SDIO bring-up (Linux)
+The board's **Ampak AP6256 (Broadcom BCM43456C5)** Wi-Fi module is up under our mainline-6.18 port —
+a **WPA2 STA join on 5 GHz at 433.3 Mbit/s (VHT80, −41 dBm) with a DHCP lease**. Mainline had no DTS
+node for it; three patches + firmware make it work. Full writeup: `docs/wifi-ap6256.md`.
+- **`patches-6.18/0004-…-enable-ap6256-sdio-wifi`** (DTS): the K1 `SDH1` node (`0xd4280800`, IRQ 100),
+  `mmc2` pin group (GPIO_15..20, all pads pulled up incl. CLK), WL_REG_ON = GPIO 67 via
+  `mmc-pwrseq-simple`. **Key finding:** `vmmc-supply = <&pcie_vcc3v3>` — **EXT_PWR_EN (GPIO 116)**
+  gates the shared EXT_3V3 buck feeding the module VBAT (same rail as PCIe 3.3 V); without it the
+  module has no VBAT and is mute to every SDIO command. `vqmmc = buck3_1v8`.
+- **`patches-6.18/0005-…-fix-unaligned-HOST_CONTROL2-access`** (driver, upstream-worthy): mainline
+  `sdhci-of-k1` does a **32-bit RMW of the 16-bit `HOST_CONTROL2`** (offset `0x3E`) → misaligned
+  device load → **RISC-V access fault → kernel panic** in IRQ. Guarded by `!MMC_CAP2_NO_SDIO`, and
+  every upstream K1 board is `no-sdio`, so **our Wi-Fi slot was the first to ever execute it** —
+  100 % reproducible panic before, clean after. Fix: 16-bit `sdhci_readw/writew`.
+- **`patches-6.18/0006-rtc-spacemit-p1-enable-…-32KOUT`** (PMIC RTC): SPM8821 `RTC_CTRL` powers up
+  `0x00`; mainline only toggles `RTC_EN`, leaving the PMIC **32KOUT** pin dead — the board's only
+  32.768 kHz source and the AP6256 **LPO**, without which brcmfmac hits `clock enable timeout`. Fix
+  enables `crystal_en|out_32k_en|rtc_en|rtc_clk_sel` at probe (also fixes the RTC/`hctosys`).
+- **Firmware/NVRAM:** `brcmfmac43456-sdio.{bin,clm_blob}` (RPi-Distro set, fw 7.84.17.1) + vendor
+  board NVRAM + `LICENSE.brcm80211`, shipped in `base-files/lib/firmware/brcm/` (installed under both
+  generic and `xunlong,orangepi-rv2` names). Packages added to `config/rv2-router.config`
+  (`kmod-brcmfmac`, `BRCMFMAC_SDIO`, `wpad-mbedtls`, `iw`).
+- **uci-defaults** ship a template STA config (`99-rv2-wifi-sta`) that retries each boot until the
+  radio exists; uplink lands on `wwan` (DHCP, `wan` firewall zone). `brcmfmac` has no 4-addr/WDS, so
+  L2-bridging the uplink needs `relayd`.
+- **Sanitized for the public repo:** the shipped `99-rv2-wifi-sta` uses placeholder `ssid=YOUR-SSID`
+  / `key=CHANGE-ME` (no real credentials committed); `99-rv2-lan` static IP moved to
+  `192.168.1.250` (author-specific — edit for your LAN).
+- **Credit:** the hardware root causes (VBAT/EXT_PWR_EN GPIO 116, PMIC 32KOUT LPO, pad config) were
+  discovered during the sibling **FreeBSD/OPNsense** port's ~50-round bring-up; this port reused them.
+
 ## 2026-07-03 — Full "router" image: VPN + DNS-sink tooling + IPv6 + SMB + diagnostics
 Built and flashed a complete router feature set (279 packages, ~18 MB squashfs, rootfs 13 MB) and
 documented it as a reproducible profile.

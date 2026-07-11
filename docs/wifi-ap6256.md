@@ -1,0 +1,116 @@
+# Onboard Wi-Fi bring-up — AP6256 (BCM43456) SDIO
+
+The Orange Pi RV2 carries an **Ampak AP6256** module — a **Broadcom BCM43456C5**
+(Wi-Fi 5, dual-band 2.4/5 GHz, plus BT5) wired to the K1's **third SDHCI**
+instance over **SDIO 3.0**. Mainline 6.18 has **no device-tree node** for it, so
+under stock OpenWrt the module is simply absent. This port adds three kernel
+patches and the firmware/NVRAM to bring it up. **Validated on real hardware:** a
+WPA2 STA join on 5 GHz at 433 Mbit/s with a DHCP lease.
+
+## Hardware map
+
+| | |
+|---|---|
+| Module | Ampak AP6256 = Broadcom **BCM43456C5** (Wi-Fi 5 + BT5) |
+| Bus | SDIO 3.0 on the K1's **SDH1** (third SDHCI) @ `0xd4280800` |
+| Clocks / reset | `CLK_SDH1` / `RESET_SDH1` (+ shared AXI), **IRQ 100** |
+| Data/CMD pins | mmc2 group **GPIO_15..20**, MODE1, 1.8 V |
+| WL_REG_ON | **GPIO 67** (active-low reset via `mmc-pwrseq-simple`) |
+| Module VBAT | **EXT_3V3** buck behind **EXT_PWR_EN = GPIO 116** |
+| 32 kHz LPO | PMIC **32KOUT** (the board's *only* 32.768 kHz source) |
+
+## The three patches
+
+### 0004 — DTS: the SDH1 node, pins, power sequencing
+
+Adds the `sdhci1` host node (SDH1 reg/clocks/resets/IRQ 100), an `mmc2` pin group
+(GPIO_15..20 MODE1), and the `&sdhci1` board node marking it `non-removable`,
+`no-sd`, `no-mmc`, 4-bit, SDIO-only, with the `brcmfmac` child.
+
+Two board-specific details were reverse-engineered from the vendor tree and
+schematic:
+
+- **All pads pulled up, including CLK**, at 1.8 V DS2. The vendor pulls the mmc2
+  **clock** pad up — the opposite of the SD-slot convention — and the module is
+  unreliable without it.
+- **`vmmc-supply = <&pcie_vcc3v3>`.** The schematic shows **EXT_PWR_EN (GPIO 116)**
+  enabling the shared **EXT_3V3** buck, which feeds **both** the module's WIFI_VCC33
+  (VBAT) **and** the PCIe 3.3 V rail. Mainline already models that rail as
+  `pcie_vcc3v3`; referencing it as `vmmc` makes the MMC core power the module
+  (auto-muxing pad 116 via `gpio-ranges`) **before** card init. Without it the
+  module has no VBAT and is **mute to every SDIO command**. `vqmmc` is `buck3_1v8`.
+
+### 0005 — driver fix: fatal unaligned HOST_CONTROL2 access *(upstream-worthy)*
+
+Mainline `sdhci-of-k1`'s `spacemit_sdhci_set_uhs_signaling()` does a **32-bit
+read-modify-write** of `SDHCI_HOST_CONTROL2` — a **16-bit** register at offset
+`0x3E`. That issues a 4-byte MMIO load at a 2-byte-aligned device address, which
+**cannot be emulated on RISC-V**: it takes a load access fault in interrupt
+context and the kernel panics.
+
+```
+Oops - load access fault, epc spacemit_sdhci_set_uhs_signaling+0x3c
+badaddr = ioaddr + 0x3e
+```
+
+The line is guarded by `!MMC_CAP2_NO_SDIO`, and **every upstream K1 board marks
+its slots `no-sdio`** — so this port's Wi-Fi slot is the *first* to ever execute
+it. Panic was **100 % reproducible** at probe before the fix; clean after. The fix
+uses the 16-bit `sdhci_readw`/`sdhci_writew` accessors (matching the register
+width and the vendor driver).
+
+### 0006 — PMIC RTC: enable the 32 kHz crystal and 32KOUT (the LPO)
+
+The P1 PMIC (**SPM8821**) `RTC_CTRL` (0x1d) powers up as `0x00`. Mainline
+`rtc-spacemit-p1` only toggles `RTC_EN`, so (a) the RTC never counts — `hctosys`
+fails — and, critically, (b) the PMIC **32KOUT** pin stays dead. On this board
+32KOUT is the **only** 32.768 kHz source and feeds the AP6256's **LPO** pin.
+Without the LPO the module PMU can't raise its SDIO backplane clocks and brcmfmac
+fails with **`clock enable timeout`**.
+
+The fix programs `crystal_en | out_32k_en | rtc_en | rtc_clk_sel` at probe
+(matching the vendor driver). It fixes the RTC too, as a bonus.
+
+## Firmware & NVRAM
+
+Shipped in the target base-files under `/lib/firmware/brcm/`:
+
+- `brcmfmac43456-sdio.bin` + `brcmfmac43456-sdio.clm_blob` — the RPi-Distro 43456
+  set, firmware **7.84.17.1**.
+- Board-specific NVRAM (`.txt`), captured from the vendor Orange Pi image,
+  installed under both the generic name and `brcmfmac43456-sdio.xunlong,orangepi-rv2.txt`.
+- `LICENSE.brcm80211` (the Broadcom redistribution licence) accompanies them.
+
+The kmod + supplicant are selected in `config/rv2-router.config`
+(`kmod-brcmfmac`, `BRCMFMAC_SDIO`, `wpad-mbedtls`, `iw`).
+
+## Result on hardware
+
+```
+mmc2: new high speed SDIO card at address 0001
+brcmfmac: BCM4345/9 wl0: ... 7.84.17.1
+phy0-sta0: associated (5 GHz, -41 dBm, 433.3 Mbit/s VHT80)
+```
+
+The STA join brings up a `wwan` interface (DHCP, `wan` firewall zone). A
+uci-defaults script ships a **template STA config** with placeholder SSID/key
+that retries each boot until the radio exists.
+
+> **Note — placeholder credentials.** The shipped
+> [`99-rv2-wifi-sta`](../target/linux/spacemit/base-files/etc/uci-defaults/99-rv2-wifi-sta)
+> uses `ssid=YOUR-SSID` / `key=CHANGE-ME`. **Edit it** with your own network
+> before building. Likewise
+> [`99-rv2-lan`](../target/linux/spacemit/base-files/etc/uci-defaults/99-rv2-lan)
+> hard-codes the author's static LAN address `192.168.1.250` — author-specific,
+> change or delete it for your own image.
+
+> **brcmfmac has no 4-address (WDS) mode**, so this radio can't be a transparent
+> L2 bridge port; use **relayd** (or route) if you need the wireless uplink to
+> serve a wired LAN.
+
+## Credit
+
+The root causes — module **VBAT via EXT_PWR_EN / GPIO 116**, the **PMIC 32KOUT
+LPO**, and the exact pad config — were first discovered during the sibling
+**FreeBSD/OPNsense** port's ~50-round Wi-Fi bring-up on the same board. This Linux
+port reused those hardware findings; the SDIO panic (patch 0005) is Linux-specific.

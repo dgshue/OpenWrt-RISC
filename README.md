@@ -34,14 +34,17 @@ kernel — mirroring the vendor flow.
 ## What works / what doesn't
 
 **Working:** SMP boot (8 cores), clock/reset (CCU), pinctrl, GPIO, I²C, SpacemiT P1 PMIC +
-regulators + RTC, **microSD** (high-speed), **dual Gigabit Ethernet**, 8250 serial console,
-squashfs root + F2FS overlay, `procd`, LuCI web UI.
+regulators + RTC, **microSD** (high-speed), **dual Gigabit Ethernet**, **onboard Wi-Fi** (AP6256 /
+BCM43456 SDIO, STA mode validated), 8250 serial console, squashfs root + F2FS overlay, `procd`,
+LuCI web UI.
 
 **Not yet / caveats:**
 - **microSD runs in high-speed (3.3 V) mode only**, not UHS — see [patch 0003](#patches) and the
   [MMC fix writeup](docs/openwrt-sd-mmc-fix.md). UHS needs two more driver commits backported.
 - USB / PCIe device-tree nodes are present (from the board backport) but not exercised/validated here.
-- No Wi-Fi (board has none on-SoC).
+- **Wi-Fi is validated in STA (client) mode** — see [patches 0004–0006](#patches) and the
+  [AP6256 bring-up writeup](docs/wifi-ap6256.md). `brcmfmac` has **no 4-address (WDS) mode**, so the
+  radio can't be a transparent L2 bridge port; L2-bridging a wireless uplink needs `relayd`.
 - `reboot` behaviour on this board is quirky (OpenSBI SRST is a no-op on the vendor firmware) — a
   power cycle is the reliable reset.
 
@@ -100,6 +103,10 @@ cat /tmp/rv2/config/rv2-router.config >> .config   # from this repo
 make defconfig && make -j"$(nproc)"
 ```
 
+This profile also selects the **onboard Wi-Fi** packages (`kmod-brcmfmac`, `BRCMFMAC_SDIO`,
+`wpad-mbedtls`, `iw`); the AP6256 firmware, CLM blob and board NVRAM ship in the target base-files.
+See **[docs/wifi-ap6256.md](docs/wifi-ap6256.md)** for the bring-up story.
+
 See **[docs/router-build.md](docs/router-build.md)** for the full package list, the
 **VPN-is-an-interface-protocol** gotcha (LuCI has no standalone VPN app pages anymore), and the
 **force-DNS / sinkhole recipe** that closes the "my DNS filter misses half the queries" gap.
@@ -117,7 +124,7 @@ See **[docs/router-build.md](docs/router-build.md)** for the full package list, 
    *System → Administration* or via `passwd` on the console before enabling SSH).
 
 > ⚠️ **Local LAN default:** [`base-files/etc/uci-defaults/99-rv2-lan`](target/linux/spacemit/base-files/etc/uci-defaults/99-rv2-lan)
-> sets a **static `192.168.1.35`**, points gateway/DNS at `192.168.1.1`, and **disables the LAN
+> sets a **static `192.168.1.250`**, points gateway/DNS at `192.168.1.1`, and **disables the LAN
 > DHCP server** (so the board is a well-behaved host on an existing network rather than a router at
 > `.1`). This is tailored to the author's LAN — **edit or delete that file** to restore OpenWrt's
 > standard `192.168.1.1` + DHCP behaviour before building your own image.
@@ -132,11 +139,15 @@ target/linux/spacemit/
 ├── config-6.18                  # K1 driver stack built-in (CCU clk, EMAC, sdhci, pinctrl, PMIC…)
 ├── generic/target.mk            # the 'generic' subtarget
 ├── image/                       # SD image recipe (MBR: FAT boot p1 + rootfs p2, boot.scr)
-├── base-files/                  # 02_network (eth0=LAN/eth1=WAN), inittab, uci-defaults
+├── base-files/                  # 02_network (eth0=LAN/eth1=WAN), inittab, uci-defaults,
+│                                #   brcm/ Wi-Fi firmware+NVRAM (see patch 0004)
 └── patches-6.18/
     ├── 0001-…-backport-k1-board-enablement…      # board DTS (see below)
     ├── 0002-mmc-sdhci-of-k1-enable-pad-clock…    # the SD boot fix (see below)
-    └── 0003-…-sd-high-speed-only                 # constrain SD to high-speed
+    ├── 0003-…-sd-high-speed-only                 # constrain SD to high-speed
+    ├── 0004-…-enable-ap6256-sdio-wifi            # Wi-Fi DTS node (see below)
+    ├── 0005-…-fix-unaligned-HOST_CONTROL2-access # SDIO panic fix (see below)
+    └── 0006-rtc-spacemit-p1-enable-…-32KOUT      # PMIC 32KOUT / Wi-Fi LPO (see below)
 ```
 
 ### Patches
@@ -157,6 +168,26 @@ target/linux/spacemit/
   commits (`00a97fc57c09`, `e9cb83c10071`), so requesting UHS risks a failed 1.8 V switch during
   init. This drops `sd-uhs-*` and adds `no-1-8-v` for reliable 3.3 V high-speed operation. Remove it
   once those two commits are backported.
+
+- **0004 — AP6256 SDIO Wi-Fi device tree.** Adds the K1 `SDH1` host node (@ `0xd4280800`, IRQ 100),
+  the `mmc2` pin group (GPIO_15..20), and the `&sdhci1` board node with power sequencing (WL_REG_ON =
+  GPIO 67) and the `brcmfmac` child. Key finding: `vmmc-supply = <&pcie_vcc3v3>` — **EXT_PWR_EN
+  (GPIO 116)** gates the shared EXT_3V3 buck feeding the module's VBAT, so the MMC core must power it
+  before card init or the module is mute. Firmware/NVRAM ship in `base-files/lib/firmware/brcm/`.
+
+- **0005 — `sdhci-of-k1`: fix fatal unaligned HOST_CONTROL2 access** *(upstream-worthy).* The K1
+  driver does a **32-bit** RMW of the **16-bit** `SDHCI_HOST_CONTROL2` (offset `0x3E`) → misaligned
+  device load → **RISC-V access fault → kernel panic** in IRQ context. It's guarded by
+  `!MMC_CAP2_NO_SDIO`, and every upstream K1 board marks its slots `no-sdio`, so **our Wi-Fi slot is
+  the first to hit it** (100 % reproducible panic before, clean after). Fix: use `sdhci_readw/writew`.
+
+- **0006 — PMIC RTC: enable the 32 kHz crystal and 32KOUT.** The SPM8821 `RTC_CTRL` powers up
+  `0x00`; mainline only toggles `RTC_EN`, so the PMIC **32KOUT** pin stays dead — and it's the
+  board's only 32.768 kHz source, feeding the AP6256 **LPO**. Without it brcmfmac fails with `clock
+  enable timeout`. Fix enables `crystal_en|out_32k_en|rtc_en|rtc_clk_sel` at probe (also fixes the RTC).
+
+Full Wi-Fi story, with the schematic power-rail reasoning and the panic trace:
+**[docs/wifi-ap6256.md](docs/wifi-ap6256.md).**
 
 ---
 
